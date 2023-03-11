@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+enum AQLServiceStatus {
+	OK = 0;
+	ERROR = 1;
+}
+
+message AQLServiceError {
+	string msg = 1;
+	string details= 2;
+}
+
+message AQLServiceRequest {
+	string payload = 1;
+}
+
+message AQLServiceResponse {
+	AQLServiceStatus status = 1;
+	AQLServiceError error = 2;
+	string payload = 3;
+}
+
