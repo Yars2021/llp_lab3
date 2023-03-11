@@ -25,7 +25,7 @@ void unpack_aql_request(AQLServiceRequest *request, uint8_t *packed, size_t size
     //aqlservice__free_unpacked(rev, NULL);
 }
 
-struct AQLDataPacked pack_aql_response(char *response_text, AQLServiceStatus status, AQLServiceError *err) {
+struct AQLDataPacked pack_aql_response(char *response_text, char *status, char *err) {
     struct AQLDataPacked packed;
     /* Packing string to Protobuf structure */
     AQLServiceResponse response;

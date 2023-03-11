@@ -10,7 +10,7 @@ struct AQLDataPacked {
 
 struct AQLDataPacked pack_aql_request(char *request_text);
 void unpack_aql_request(AQLServiceRequest *request, uint8_t *packed, size_t size);
-struct AQLDataPacked pack_aql_response(char *response_text, AQLServiceStatus status, AQLServiceError *err);
+struct AQLDataPacked pack_aql_response(char *response_text, char *status, char *err);
 
 
 #endif

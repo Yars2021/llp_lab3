@@ -62,7 +62,7 @@ int client (const char *url, char *aql_query)
     nn_freemsg(msg);
 
     AQLServiceResponse *aql_response = aqlservice_response__unpack(NULL, rc, response);
-    printf("rc: %d, payload: %s, status: %d, emsg^ %s, edet: %s\n", rc, aql_response->payload, aql_response->status, aql_response->error->msg, aql_response->error->details);
+    printf("rc: %d, payload: %s, status: %s, error: %s\n", rc, aql_response->payload, aql_response->status, aql_response->error);
     free(response);
 
     free(aql_response->error);

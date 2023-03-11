@@ -15,8 +15,8 @@ message AQLServiceRequest {
 }
 
 message AQLServiceResponse {
-	AQLServiceStatus status = 1;
-	AQLServiceError error = 2;
+	string status = 1;
+	string error = 2;
 	string payload = 3;
 }
 

@@ -76,12 +76,7 @@ int server(const char *url)
 
             /* serialize response */
 
-            AQLServiceError *serviceError = (AQLServiceError*) malloc(sizeof(AQLServiceError));
-            serviceError->msg = "err.msg";
-            serviceError->details = "err.details";
-            response_packed = pack_aql_response("RESPONSE TEXT", AQLSERVICE_STATUS__OK, serviceError);
-
-            printf("HERE");
+            response_packed = pack_aql_response("RESPONSE TEXT", "OK", "-");
 
             if (nn_send(fd, response_packed.payload, response_packed.size, 0) < 0) {
                 fprintf(stderr, "nn_send: %s (ignored)\n", nn_strerror(nn_errno()));
@@ -91,7 +86,6 @@ int server(const char *url)
             aql_log(MSG_OUT, "Message sent");
 
             if (response_packed.payload) free(response_packed.payload);
-            free(serviceError);
         }
     }
 
