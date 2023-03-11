@@ -32,66 +32,74 @@ int server(const char *url)
 {
     int fd; 
 
-    fd = nn_socket (AF_SP, NN_REP);
+    fd = nn_socket(AF_SP, NN_REP);
     if (fd < 0) {
-        fprintf (stderr, "nn_socket: %s\n", nn_strerror (nn_errno ()));
-        return (-1);
+        fprintf(stderr, "nn_socket: %s\n", nn_strerror(nn_errno()));
+        return -1;
     }
 
-    if (nn_bind (fd, url) < 0) {
-        fprintf (stderr, "nn_bind: %s\n", nn_strerror (nn_errno ()));
-        nn_close (fd);
-        return (-1);
+    if (nn_bind(fd, url) < 0) {
+        fprintf(stderr, "nn_bind: %s\n", nn_strerror(nn_errno()));
+        nn_close(fd);
+        return -1;
     }
 
-	char *aql_response = "OK";
+    struct AQLDataPacked response_packed;
 
     for (;;) {
-		char aql_query[1024];
+		char aql_query[4096];
 		int rc;
 
         rc = nn_recv(fd, aql_query, sizeof(aql_query), 0);
         if (rc < 0) {
-            fprintf (stderr, "nn_recv: %s\n", nn_strerror (nn_errno ()));
+            fprintf (stderr, "nn_recv: %s\n", nn_strerror(nn_errno()));
             break;
         }
-
-//		if (rc >0) {
 
 		AQLServiceRequest *aql_request = aqlservice_request__unpack(NULL, rc, aql_query);
 
 		printf("rc: %d, payload: %s(%ld)\n", rc, aql_request->payload, strlen(aql_request->payload));
 
-//		if (aql_request == NULL)
-//			aql_log(MSG_OUT, "NULL");
+		if (aql_request == NULL) aql_log(MSG_OUT, "NULL");
+        else {
+            if (rc < strlen(aql_request->payload)) {
+                aql_request->payload[rc] = '\0';
+            } else {
+                aql_request->payload[strlen(aql_request->payload)] = '\0';
+            }
 
-		
-        	if (rc < strlen(aql_request->payload)) {
-           		aql_request->payload[rc] = '\0';
-        	} else {
-            	aql_request->payload[strlen(aql_request->payload)] = '\0';
-        	}
+            aql_log(MSG_IN, aql_request->payload);
 
-			aql_log(MSG_IN, aql_request->payload);
+            /* parse query */
 
-			/* DB communication: START  */
+            /* execute query  */
 
-			/* DB commonication: END*/
+            /* serialize response */
 
-        	rc = nn_send (fd, aql_response, strlen(aql_response), 0);
-        	if (rc < 0) {
-            	fprintf (stderr, "nn_send: %s (ignoring)\n", nn_strerror (nn_errno ()));
-        	}
+            AQLServiceError *serviceError = (AQLServiceError*) malloc(sizeof(AQLServiceError));
+            serviceError->msg = "err.msg";
+            serviceError->details = "err.details";
+            response_packed = pack_aql_response("RESPONSE TEXT", AQLSERVICE_STATUS__OK, serviceError);
 
-			aql_log(MSG_OUT, aql_response);
-//		}
+            printf("HERE");
+
+            if (nn_send(fd, response_packed.payload, response_packed.size, 0) < 0) {
+                fprintf(stderr, "nn_send: %s (ignored)\n", nn_strerror(nn_errno()));
+                nn_close(fd);
+            }
+
+            aql_log(MSG_OUT, "Message sent");
+
+            if (response_packed.payload) free(response_packed.payload);
+            free(serviceError);
+        }
     }
 
     nn_close (fd);
-    return (-1);
+    return 0;
 }
 
 int main(int argc, char** argv) {
 	int rc = server(SERVER);
-	exit (rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
+	exit(rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
 }
