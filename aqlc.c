@@ -65,8 +65,7 @@ int client (const char *url, char *aql_query)
     printf("rc: %d, payload: %s, status: %s, error: %s\n", rc, aql_response->payload, aql_response->status, aql_response->error);
     free(response);
 
-    free(aql_response->error);
-    free(aql_response);
+    aqlservice_response__free_unpacked(aql_response, NULL);
 
     return 0;
 }

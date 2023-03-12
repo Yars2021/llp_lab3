@@ -76,6 +76,7 @@ int server(const char *url)
 
             /* serialize response */
 
+            aqlservice_request__free_unpacked(aql_request, NULL);
             response_packed = pack_aql_response("RESPONSE TEXT", "OK", "-");
 
             if (nn_send(fd, response_packed.payload, response_packed.size, 0) < 0) {
