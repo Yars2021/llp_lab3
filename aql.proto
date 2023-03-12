@@ -11,7 +11,8 @@ message AQLServiceError {
 }
 
 message AQLServiceRequest {
-	string payload = 1;
+    string common_header = 1;
+	string payload = 2;
 }
 
 message AQLServiceResponse {

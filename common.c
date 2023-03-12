@@ -3,11 +3,12 @@
 #include "aql.pb-c.h"
 #include "common.h"
 
-struct AQLDataPacked pack_aql_request(char *request_text) {
+struct AQLDataPacked pack_aql_request(char *header, char *request_text) {
 	struct AQLDataPacked packed;
 	/* Packing string to Protobuf structure */
     AQLServiceRequest request;
     aqlservice_request__init(&request);
+    request.common_header = header;
     request.payload = request_text;
     
     packed.size = aqlservice_request__get_packed_size(&request);

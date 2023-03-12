@@ -9,6 +9,8 @@
 #include <protobuf-c/protobuf-c.h>
 #include "aql.pb-c.h"
 #include "common.h"
+#include "data.h"
+#include "aql.tab.h"
 
 #define SERVER	"tcp://127.0.0.1:7777"
 
@@ -47,7 +49,7 @@ int server(const char *url)
     struct AQLDataPacked response_packed;
 
     for (;;) {
-		char aql_query[4096];
+		char aql_query[32768];
 		int rc;
 
         rc = nn_recv(fd, aql_query, sizeof(aql_query), 0);
@@ -58,7 +60,7 @@ int server(const char *url)
 
 		AQLServiceRequest *aql_request = aqlservice_request__unpack(NULL, rc, aql_query);
 
-		printf("rc: %d, payload: %s(%ld)\n", rc, aql_request->payload, strlen(aql_request->payload));
+		printf("rc: %d, h: %s, payload: %s(%ld)\n", rc, aql_request->common_header, aql_request->payload, strlen(aql_request->payload));
 
 		if (aql_request == NULL) aql_log(MSG_OUT, "NULL");
         else {
@@ -69,8 +71,6 @@ int server(const char *url)
             }
 
             aql_log(MSG_IN, aql_request->payload);
-
-            /* parse query */
 
             /* execute query  */
 
