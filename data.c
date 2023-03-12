@@ -73,7 +73,9 @@ predicate *create_simple_predicate(int l_type, int r_type, int cmp_type, literal
     if (pred) {
         pred->l_type = l_type;
         pred->r_type = r_type;
+        pred->op_type = 0;
         pred->cmp_type = cmp_type;
+        pred->priority = 0;
         switch (pred->l_type) {
             case 1:
                 pred->l_ref = r_left;
@@ -100,6 +102,7 @@ predicate *create_complex_predicate(int op_type, predicate *left, predicate *rig
         pred->l_type = 0;
         pred->r_type = 0;
         pred->op_type = op_type;
+        pred->cmp_type = 0;
         pred->left = left;
         pred->right = right;
         pred->priority = priority;
@@ -447,8 +450,32 @@ void print_statement(statement *stmt) {
     }
 }
 
+char *serialize_int(int num) {
+    char *rev_res = (char*) malloc(32);
+    memset(rev_res, 0, 32);
+    size_t index = 0;
+
+    while (num > 0) {
+        rev_res[index++] = (num % 10) + '0';
+        num /= 10;
+    }
+
+    char *res = (char*) malloc(index + 1);
+    memset(res, 0, index + 1);
+    for (size_t i = 0; i < index; i++) res[i] = rev_res[index - i - 1];
+
+    return res;
+}
+
 char *serialize_predicate(predicate *pred) {
-    if (!pred) return "";
+    if (!pred) {
+        char *serialized = (char*) malloc(3);
+        serialized[0] = '{';
+        serialized[1] = '}';
+        serialized[2] = '\0';
+        return serialized;
+    }
+
     char *l_ser, *r_ser;
 
     switch (pred->l_type) {
@@ -456,8 +483,8 @@ char *serialize_predicate(predicate *pred) {
             l_ser = serialize_predicate(pred->left);
             break;
         case 1: {
-            l_ser = (char*) malloc(strlen("{'T':' ','F':''}") + strlen(pred->l_ref->table) + strlen(pred->l_ref->field) + 1);
-            memset(l_ser, 0, strlen("{'T':' ','F':''}") + strlen(pred->l_ref->table) + strlen(pred->l_ref->field) + 1);
+            l_ser = (char*) malloc(strlen("{'T':'','F':''}") + strlen(pred->l_ref->table) + strlen(pred->l_ref->field) + 1);
+            memset(l_ser, 0, strlen("{'T':'','F':''}") + strlen(pred->l_ref->table) + strlen(pred->l_ref->field) + 1);
             sprintf(l_ser, "{\"T\":\"%s\",\"F\":\"%s\"}", pred->l_ref->table, pred->l_ref->field);
             break;
         }
@@ -474,8 +501,8 @@ char *serialize_predicate(predicate *pred) {
             r_ser = serialize_predicate(pred->right);
             break;
         case 1: {
-            r_ser = (char*) malloc(strlen("{'T':' ','F':''}") + strlen(pred->r_ref->table) + strlen(pred->r_ref->field) + 1);
-            memset(r_ser, 0, strlen("{'T':' ','F':''}") + strlen(pred->r_ref->table) + strlen(pred->r_ref->field) + 1);
+            r_ser = (char*) malloc(strlen("{'T':'','F':''}") + strlen(pred->r_ref->table) + strlen(pred->r_ref->field) + 1);
+            memset(r_ser, 0, strlen("{'T':'','F':''}") + strlen(pred->r_ref->table) + strlen(pred->r_ref->field) + 1);
             sprintf(r_ser, "{\"T\":\"%s\",\"F\":\"%s\"}", pred->r_ref->table, pred->r_ref->field);
             break;
         }
@@ -488,6 +515,7 @@ char *serialize_predicate(predicate *pred) {
     }
 
     char *serialized = (char*) malloc(strlen("{'lt':' ','rt':' ','ct':' ','ot':' ','p':' ','l':,'r':}") + strlen(l_ser) + strlen(r_ser) + 1);
+    memset(serialized, 0, strlen("{'lt':' ','rt':' ','ct':' ','ot':' ','p':' ','l':,'r':}") + strlen(l_ser) + strlen(r_ser) + 1);
     sprintf(serialized, "{\"lt\":\"%d\",\"rt\":\"%d\",\"ct\":\"%d\",\"ot\":\"%d\",\"p\":\"%d\",\"l\":%s,\"r\":%s}",
             pred->l_type, pred->r_type, pred->cmp_type, pred->op_type, pred->priority, l_ser, r_ser);
 
@@ -498,7 +526,13 @@ char *serialize_predicate(predicate *pred) {
 }
 
 char *serialize_field(field *f) {
-    if (!f) return "";
+    if (!f) {
+        char *serialized = (char*) malloc(3);
+        serialized[0] = '{';
+        serialized[1] = '}';
+        serialized[2] = '\0';
+        return serialized;
+    }
     char *serialized = (char*) malloc(strlen("{'n':'','t':' '}") + strlen(f->name) + 1);
     memset(serialized, 0, strlen("{'n':'','t':' '}") + strlen(f->name) + 1);
     sprintf(serialized, "{\"n\":\"%s\",\"t\":\"%d\"}", f->name, f->type);
@@ -506,15 +540,55 @@ char *serialize_field(field *f) {
 }
 
 char *serialize_cell(cell *c) {
-    if (!c) return "";
+    if (!c) {
+        char *serialized = (char*) malloc(3);
+        serialized[0] = '{';
+        serialized[1] = '}';
+        serialized[2] = '\0';
+        return serialized;
+    }
     char *serialized = (char*) malloc(strlen("{'n':'','v':''}") + strlen(c->name) + strlen(c->value) + 1);
     memset(serialized, 0, strlen("{'n':'','v':''}") + strlen(c->name) + strlen(c->value) + 1);
     sprintf(serialized, "{\"n\":\"%s\",\"v\":\"%s\"}", c->name, c->value);
     return serialized;
 }
 
+char *serialize_table_var(table_var_link *n) {
+    if (!n) {
+        char *serialized = (char*) malloc(3);
+        serialized[0] = '{';
+        serialized[1] = '}';
+        serialized[2] = '\0';
+        return serialized;
+    }
+    char *serialized = (char*) malloc(strlen("{'t':'','v':''}") + strlen(n->table) + strlen(n->var) + 1);
+    memset(serialized, 0, strlen("{'t':'','v':''}") + strlen(n->table) + strlen(n->var) + 1);
+    sprintf(serialized, "{\"t\":\"%s\",\"v\":\"%s\"}", n->table, n->var);
+    return serialized;
+}
+
+char *serialize_reference(reference *r) {
+    if (!r) {
+        char *serialized = (char*) malloc(3);
+        serialized[0] = '{';
+        serialized[1] = '}';
+        serialized[2] = '\0';
+        return serialized;
+    }
+    char *serialized = (char*) malloc(strlen("{'t':'','f':''}") + strlen(r->table) + strlen(r->field) + 1);
+    memset(serialized, 0, strlen("{'t':'','f':''}") + strlen(r->table) + strlen(r->field) + 1);
+    sprintf(serialized, "{\"t\":\"%s\",\"f\":\"%s\"}", r->table, r->field);
+    return serialized;
+}
+
 char *serialize_statement(statement *stmt) {
-    if (!stmt) return "";
+    if (!stmt) {
+        char *serialized = (char*) malloc(3);
+        serialized[0] = '{';
+        serialized[1] = '}';
+        serialized[2] = '\0';
+        return serialized;
+    }
     char *serialized;
 
     switch (stmt->stmt_type) {
@@ -543,28 +617,76 @@ char *serialize_statement(statement *stmt) {
                 free(s_field);
             }
 
-            serialized = (char*) malloc(strlen("{'fn':'','f':[]}") + fields_len + 1);
-            memset(serialized, 0, strlen("{'fn':'','f':[]}") + fields_len + 1);
-            sprintf(serialized, "{\"fn\":\"%zd\",\"f\":[%s]}", fn, fields);
+            char *str_fn = serialize_int(fn);
+
+            serialized = (char*) malloc(strlen("{'fn':'','f':[]}") + strlen(str_fn) + fields_len + 1);
+            memset(serialized, 0, strlen("{'fn':'','f':[]}") + strlen(str_fn) + fields_len + 1);
+            sprintf(serialized, "{\"fn\":\"%s\",\"f\":[%s]}", str_fn, fields);
+            free(str_fn);
+            free(fields);
             break;
         }
         case 1: {
-            printf("\tsel_type: %s\n", stmt->select_stmt->type == 0 ? "unfiltered" : stmt->select_stmt->type == 1 ? "filtered" : "joined");
-            printf("\tvariables:\n\t[\n");
-            for (table_var_link *var = stmt->select_stmt->names; var != NULL; var = var->next) {
-                printf("\t\t{\n\t\t\ttable: %s\n\t\t\tvar: %s\n\t\t}", var->table, var->var);
-                if (var->next != NULL) printf(",");
-                printf("\n");
+            size_t nn = 0, names_len = 0;
+            for (table_var_link *n = stmt->select_stmt->names; n != NULL; n = n->next) {
+                names_len += (strlen("{'t':'','v':''}") + strlen(n->table) + strlen(n->var));
+                nn++;
             }
-            printf("\t]\n\treturn:\n\t[\n");
-            for (reference *ref = stmt->select_stmt->ref_list; ref != NULL; ref = ref->next) {
-                printf("\t\t{\n\t\t\ttable: %s\n\t\t\tfield: %s\n\t\t}", ref->table, ref->field);
-                if (ref->next != NULL) printf(",");
-                printf("\n");
+
+            names_len += (nn - 1);
+            char *names = (char*) malloc(names_len + 1);
+            memset(names, 0, names_len + 1);
+
+            size_t n_index = 0;
+            for (table_var_link *n = stmt->select_stmt->names; n != NULL; n = n->next) {
+                char *s_name = serialize_table_var(n);
+                memcpy(names + n_index, s_name, strlen(s_name));
+                n_index += strlen(s_name);
+
+                if (n->next != NULL) {
+                    names[n_index] = ',';
+                    n_index++;
+                }
+
+                free(s_name);
             }
-            printf("\t]\n\tpredicate:\n\t{\n");
-            print_predicate(stmt->select_stmt->pred, 2);
-            printf("\t}\n");
+
+            size_t rn = 0, ref_len = 0;
+            for (reference *r = stmt->select_stmt->ref_list; r != NULL; r = r->next) {
+                ref_len += (strlen("{'n':'','v':''}") + strlen(r->table) + strlen(r->field));
+                rn++;
+            }
+
+            ref_len += (rn - 1);
+            char *refs = (char*) malloc(ref_len + 1);
+            memset(refs, 0, ref_len + 1);
+
+            size_t r_index = 0;
+            for (reference *r = stmt->select_stmt->ref_list; r != NULL; r = r->next) {
+                char *s_ref= serialize_reference(r);
+                memcpy(refs + r_index, s_ref, strlen(s_ref));
+                r_index += strlen(s_ref);
+
+                if (r->next != NULL) {
+                    refs[r_index] = ',';
+                    r_index++;
+                }
+
+                free(s_ref);
+            }
+
+            char *str_vn = serialize_int(nn);
+            char *str_rn = serialize_int(rn);
+            char *s_pred = serialize_predicate(stmt->select_stmt->pred);
+
+            serialized = (char*) malloc(strlen("{'st':' ','vn':'','v':[],'rn','r':[],'pr':}") + strlen(str_vn) + strlen(str_rn) + names_len + ref_len + strlen(s_pred) + 1);
+            memset(serialized, 0, strlen("{'st':' ','vn':'','v':[],'rn','r':[],'pr':}") + strlen(str_vn) + strlen(str_rn) + names_len + ref_len + strlen(s_pred) + 1);
+            sprintf(serialized, "{\"st\":\"%d\",\"vn\":\"%s\",\"v\":[%s],\"rn\":\"%s\",\"r\":[%s],\"pr\":%s}", stmt->select_stmt->type, str_vn, names, str_rn, refs, s_pred);
+            free(str_vn);
+            free(str_rn);
+            free(names);
+            free(refs);
+            free(s_pred);
             break;
         }
         case 2: {
@@ -592,40 +714,119 @@ char *serialize_statement(statement *stmt) {
                 free(s_cell);
             }
 
-            serialized = (char*) malloc(strlen("{'cn':'','c':[]}") + cells_len + 1);
-            memset(serialized, 0, strlen("{'cn':'','c':[]}") + cells_len + 1);
-            sprintf(serialized, "{\"cn\":\"%zd\",\"c\":[%s]}", cn, cells);
+            char *str_cn = serialize_int(cn);
+
+            serialized = (char*) malloc(strlen("{'cn':'','c':[]}") + strlen(str_cn) + cells_len + 1);
+            memset(serialized, 0, strlen("{'cn':'','c':[]}") + strlen(str_cn) + cells_len + 1);
+            sprintf(serialized, "{\"cn\":\"%s\",\"c\":[%s]}", str_cn, cells);
+            free(str_cn);
+            free(cells);
             break;
         }
         case 3: {
-            printf("\tvariables:\n\t[\n");
-            for (table_var_link *var = stmt->update_stmt->names; var != NULL; var = var->next) {
-                printf("\t\t{\n\t\t\ttable: %s\n\t\t\tvar: %s\n\t\t}", var->table, var->var);
-                if (var->next != NULL) printf(",");
+            size_t nn = 0, names_len = 0;
+            for (table_var_link *n = stmt->update_stmt->names; n != NULL; n = n->next) {
+                names_len += (strlen("{'t':'','v':''}") + strlen(n->table) + strlen(n->var));
+                nn++;
             }
-            printf("\n\t]\n");
-            printf("\tcells:\n\t[\n");
+
+            names_len += (nn - 1);
+            char *names = (char*) malloc(names_len + 1);
+            memset(names, 0, names_len + 1);
+
+            size_t n_index = 0;
+            for (table_var_link *n = stmt->update_stmt->names; n != NULL; n = n->next) {
+                char *s_name = serialize_table_var(n);
+                memcpy(names + n_index, s_name, strlen(s_name));
+                n_index += strlen(s_name);
+
+                if (n->next != NULL) {
+                    names[n_index] = ',';
+                    n_index++;
+                }
+
+                free(s_name);
+            }
+
+            size_t cn = 0, cells_len = 0;
             for (cell *c = stmt->update_stmt->cell_list; c != NULL; c = c->next) {
-                printf("\t\t{\n\t\t\tname: %s\n\t\t\tvalue: %s\n\t\t}", c->name, c->value);
-                if (c->next != NULL) printf(",");
-                printf("\n");
+                cells_len += (strlen("{'n':'','v':''}") + strlen(c->name) + strlen(c->value));
+                cn++;
             }
-            printf("\t]\n\tpredicate:\n\t{\n");
-            print_predicate(stmt->update_stmt->pred, 2);
-            printf("\t}\n");
+
+            cells_len += (cn - 1);
+            char *cells = (char*) malloc(cells_len + 1);
+            memset(cells, 0, cells_len + 1);
+
+            size_t c_index = 0;
+            for (cell *c = stmt->update_stmt->cell_list; c != NULL; c = c->next) {
+                char *s_cell = serialize_cell(c);
+                memcpy(cells + c_index, s_cell, strlen(s_cell));
+                c_index += strlen(s_cell);
+
+                if (c->next != NULL) {
+                    cells[c_index] = ',';
+                    c_index++;
+                }
+
+                free(s_cell);
+            }
+
+            char *str_vn = serialize_int(nn);
+            char *str_cn = serialize_int(cn);
+            char *s_pred = serialize_predicate(stmt->update_stmt->pred);
+
+            serialized = (char*) malloc(strlen("{'vn':'','v':[],'cn','c':[],'pr':}") + strlen(str_vn) + strlen(str_cn) + names_len + cells_len + strlen(s_pred) + 1);
+            memset(serialized, 0, strlen("{'vn':'','v':[],'cn','c':[],'pr':}") + strlen(str_vn) + strlen(str_cn) + names_len + cells_len + strlen(s_pred) + 1);
+            sprintf(serialized, "{\"vn\":\"%s\",\"v\":[%s],\"cn\":\"%s\",\"c\":[%s],\"pr\":%s}", str_vn, names, str_cn, cells, s_pred);
+            free(str_vn);
+            free(str_cn);
+            free(names);
+            free(cells);
+            free(s_pred);
+            break;
+        }
+        case 4: {
+            size_t nn = 0, names_len = 0;
+            for (table_var_link *n = stmt->delete_stmt->names; n != NULL; n = n->next) {
+                names_len += (strlen("{'t':'','v':''}") + strlen(n->table) + strlen(n->var));
+                nn++;
+            }
+
+            names_len += (nn - 1);
+            char *names = (char*) malloc(names_len + 1);
+            memset(names, 0, names_len + 1);
+
+            size_t n_index = 0;
+            for (table_var_link *n = stmt->delete_stmt->names; n != NULL; n = n->next) {
+                char *s_name = serialize_table_var(n);
+                memcpy(names + n_index, s_name, strlen(s_name));
+                n_index += strlen(s_name);
+
+                if (n->next != NULL) {
+                    names[n_index] = ',';
+                    n_index++;
+                }
+
+                free(s_name);
+            }
+
+            char *str_vn = serialize_int(nn);
+            char *s_pred = serialize_predicate(stmt->delete_stmt->pred);
+
+            serialized = (char*) malloc(strlen("{'vn':'','v':[],'pr':}") + strlen(str_vn) + names_len + strlen(s_pred) + 1);
+            memset(serialized, 0, strlen("{'vn':'','v':[],'pr':}") + strlen(str_vn) + names_len + strlen(s_pred) + 1);
+            sprintf(serialized, "{\"vn\":\"%s\",\"v\":[%s],\"pr\":%s}", str_vn, names, s_pred);
+            free(str_vn);
+            free(names);
+            free(s_pred);
             break;
         }
         default: {
-            printf("\tvariables:\n\t[\n");
-            for (table_var_link *var = stmt->delete_stmt->names; var != NULL; var = var->next) {
-                printf("\t\t{\n\t\t\ttable: %s\n\t\t\tvar: %s\n\t\t}", var->table, var->var);
-                if (var->next != NULL) printf(",");
-                printf("\n");
-            }
-            printf("\t]\n");
-            printf("\tpredicate:\n\t{\n");
-            print_predicate(stmt->delete_stmt->pred, 2);
-            printf("\t}\n");
+            serialized = (char*) malloc(3);
+            serialized[0] = '{';
+            serialized[1] = '}';
+            serialized[2] = 0;
             break;
         }
     }
