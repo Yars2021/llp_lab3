@@ -106,6 +106,8 @@ statement *create_delete_statement(char *table, predicate *pred, table_var_link 
 statement *create_drop_statement(char *table);
 void print_predicate(predicate *pred, int tabs);
 void print_statement(statement *stmt);
+char *serialize_predicate(predicate *pred);
+char *serialize_statement(statement *stmt);
 void free_predicate(predicate *pred);
 void free_statement(statement *stmt);
 
