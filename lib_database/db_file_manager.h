@@ -181,7 +181,7 @@ int addTableHeader(const char *filename, Table *table);
 
 /// Appends all the records into the table. Does nothing if the table does not exist.
 /// (INSERT INTO ... VALUES(...)).
-void insertTableRecords(const char *filename, Table *table);
+int insertTableRecords(const char *filename, Table *table);
 
 /// Helper function for deleteTable(). Finds the index, where the TableLink with the provided name is stored and erases it.
 size_t findAndErase(DataPage *dataPage, const char *table_name, size_t *checked);

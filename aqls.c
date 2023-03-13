@@ -68,7 +68,7 @@ Table *parseCreateRequest(char *table_name, char *payload) {
     regmatch_t groups[3];
     int comp_ec, exec_ec;
 
-    comp_ec = regcomp(&regexp_rec, "^\\{\"fn\":\"(.)\",\"f\":\\[(.*)\\]\\}$", REG_EXTENDED);
+    comp_ec = regcomp(&regexp_rec, "^\\{\"fn\":\"(.*)\",\"f\":\\[(.*)\\]\\}$", REG_EXTENDED);
 
     if (comp_ec != REG_NOERROR) return NULL;
 
@@ -133,6 +133,76 @@ Table *parseCreateRequest(char *table_name, char *payload) {
     return createTable(createTableSchema(fields, num_of_fields, 0), table_name);
 }
 
+Table *parseInsertRequest(const char *target_file, char *table_name, char *payload) {
+    if (!payload) return NULL;
+
+    regex_t regexp_rec;
+    regmatch_t groups[3];
+    int comp_ec, exec_ec;
+
+    comp_ec = regcomp(&regexp_rec, "^\\{\"cn\":\"(.*)\",\"c\":\\[(.*)\\]\\}$", REG_EXTENDED);
+
+    if (comp_ec != REG_NOERROR) return NULL;
+
+    exec_ec = regexec(&regexp_rec, payload, 3, groups, 0);
+
+    if (exec_ec == REG_NOMATCH) return NULL;
+
+    char *s_cell_number = substrToNewInstance(payload, groups[1].rm_so, groups[1].rm_eo);
+    char *s_cells = substrToNewInstance(payload, groups[2].rm_so, groups[2].rm_eo);
+    size_t num_of_cells = string_to_size_t(s_cell_number);
+
+    regfree(&regexp_rec);
+
+
+    char *cell_reg = "\\{\"n\":\"(.*)\",\"v\":\"(.*)\"\\},";
+    size_t offset = 1;
+
+    char *fields_format = (char*) malloc(strlen(cell_reg) * num_of_cells + 2);
+    fields_format[0] = '^';
+    for (size_t i = 0; i < num_of_cells; i++, offset += strlen(cell_reg)) memcpy(fields_format + offset, cell_reg, strlen(cell_reg) + 1);
+    fields_format[offset - 1] = '$';
+    fields_format[offset] = '\0';
+
+    regex_t regexp_fields_rec;
+
+    regmatch_t cell_groups[2 * num_of_cells + 1];
+    int comp_fields_ec, exec_fields_ec;
+
+    comp_fields_ec = regcomp(&regexp_fields_rec, fields_format, REG_EXTENDED);
+
+    if (comp_fields_ec != REG_NOERROR) return NULL;
+
+    exec_fields_ec = regexec(&regexp_fields_rec, s_cells, 2 * num_of_cells + 1, cell_groups, 0);
+
+    if (exec_fields_ec == REG_NOMATCH) return NULL;
+
+    free(fields_format);
+    regfree(&regexp_fields_rec);
+
+    char **cells = (char**) malloc(sizeof(char*) * num_of_cells);
+
+    TableSchema *tableSchema = getSchema(target_file, table_name);
+
+    for (size_t i = 1; i <= num_of_cells; i++) {
+        char *field_name = substrToNewInstance(s_cells, cell_groups[2 * i - 1].rm_so, cell_groups[2 * i - 1].rm_eo);
+        size_t field_index;
+        for (field_index = 0; field_index < tableSchema->number_of_fields; field_index++)
+            if (strcmp(tableSchema->fields[field_index]->field_name, field_name) == 0) break;
+
+        free(field_name);
+        cells[field_index] = substrToNewInstance(s_cells, cell_groups[2 * i].rm_so, cell_groups[2 * i].rm_eo);
+    }
+
+    free(s_cell_number);
+    free(s_cells);
+
+    Table *table = createTable(tableSchema, table_name);
+    insertTableRecord(table, createTableRecord(num_of_cells, cells));
+
+    return table;
+}
+
 AQLServiceResponse *parse_and_execute(AQLServiceRequest *aqlServiceRequest, const char *target_file) {
     RequestHeader *requestHeader = parseRequestHeader(aqlServiceRequest->common_header);
     AQLServiceResponse *aqlServiceResponse = (AQLServiceResponse*) malloc(sizeof(AQLServiceResponse));
@@ -159,6 +229,17 @@ AQLServiceResponse *parse_and_execute(AQLServiceRequest *aqlServiceRequest, cons
         }
         case 2: {
             // Parse and execute as insert
+            Table *table = parseInsertRequest(target_file, requestHeader->table, aqlServiceRequest->payload);
+            if (insertTableRecords(target_file, table) == 0) {
+                aqlServiceResponse->error = createDataCell("");
+                aqlServiceResponse->status = createDataCell("OK");
+                aqlServiceResponse->payload = createDataCell("Insertion executed successfully");
+            } else {
+                aqlServiceResponse->error = createDataCell("Invalid table name");
+                aqlServiceResponse->status = createDataCell("ERROR");
+                aqlServiceResponse->payload = createDataCell("");
+            }
+            destroyTable(table);
             break;
         }
         case 3: {

@@ -464,11 +464,11 @@ int addTableHeader(const char *filename, Table *table)
     return 0;
 }
 
-void insertTableRecords(const char *filename, Table *table)
+int insertTableRecords(const char *filename, Table *table)
 {
-    if (!filename || !table || !table->tableSchema || table->length == 0) return;
+    if (!filename || !table || !table->tableSchema || table->length == 0) return -1;
     size_t search_result = findTable(filename, table->table_name);
-    if (search_result == SEARCH_TABLE_NOT_FOUND) return;
+    if (search_result == SEARCH_TABLE_NOT_FOUND) return -1;
 
     DataPage *tableHeader = (DataPage*) malloc(sizeof(DataPage));
     readDataPage(filename, tableHeader, search_result);
@@ -481,6 +481,8 @@ void insertTableRecords(const char *filename, Table *table)
         appendDataOrExpandThread(filename, search_result, table_record);
         free(table_record);
     }
+
+    return 0;
 }
 
 size_t findAndErase(DataPage *dataPage, const char *table_name, size_t *checked)
