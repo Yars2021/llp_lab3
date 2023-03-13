@@ -180,11 +180,11 @@ Table *parseInsertRequest(const char *target_file, char *table_name, char *paylo
     free(fields_format);
     regfree(&regexp_fields_rec);
 
-    char **cells = (char**) malloc(sizeof(char*) * num_of_cells);
-
     TableSchema *tableSchema = getSchema(target_file, table_name);
 
-    if (tableSchema == NULL) {
+    char **cells = (char**) malloc(sizeof(char*) * num_of_cells);
+
+    if (tableSchema == NULL || tableSchema->number_of_fields != num_of_cells) {
         free(s_cell_number);
         free(s_cells);
         return NULL;
@@ -390,6 +390,221 @@ int parseDeleteRequest(const char *target_file, char *table_name, char *payload)
     return removed;
 }
 
+int parseUpdateRequest(const char *target_file, char *table_name, char *payload) {
+    if (!payload) return -1;
+
+    regex_t regexp_rec;
+    regmatch_t groups[4];
+    int comp_ec, exec_ec;
+
+    comp_ec = regcomp(&regexp_rec, "^\\{\"vn\":\".*\",\"v\":\\[.*\\],\"cn\":\"(.*)\",\"c\":\\[(.*)\\],\"pr\":(.*)\\}$", REG_EXTENDED);
+
+    if (comp_ec != REG_NOERROR) return -1;
+
+    exec_ec = regexec(&regexp_rec, payload, 4, groups, 0);
+
+    if (exec_ec == REG_NOMATCH) return -1;
+
+    char *s_cell_number = substrToNewInstance(payload, groups[1].rm_so, groups[1].rm_eo);
+    char *s_cells = substrToNewInstance(payload, groups[2].rm_so, groups[2].rm_eo);
+    char *s_pred = substrToNewInstance(payload, groups[3].rm_so, groups[3].rm_eo);
+    size_t num_of_cells = string_to_size_t(s_cell_number);
+    free(s_cell_number);
+
+    regfree(&regexp_rec);
+
+
+    char *cell_reg = "\\{\"n\":\"(.*)\",\"v\":\"(.*)\"\\},";
+    size_t offset = 1;
+
+    char *fields_format = (char*) malloc(strlen(cell_reg) * num_of_cells + 2);
+    fields_format[0] = '^';
+    for (size_t i = 0; i < num_of_cells; i++, offset += strlen(cell_reg)) memcpy(fields_format + offset, cell_reg, strlen(cell_reg) + 1);
+    fields_format[offset - 1] = '$';
+    fields_format[offset] = '\0';
+
+    regex_t regexp_fields_rec;
+
+    regmatch_t cell_groups[2 * num_of_cells + 1];
+    int comp_fields_ec, exec_fields_ec;
+
+    comp_fields_ec = regcomp(&regexp_fields_rec, fields_format, REG_EXTENDED);
+
+    if (comp_fields_ec != REG_NOERROR) return -1;
+
+    exec_fields_ec = regexec(&regexp_fields_rec, s_cells, 2 * num_of_cells + 1, cell_groups, 0);
+
+    if (exec_fields_ec == REG_NOMATCH) return -1;
+
+    free(fields_format);
+    regfree(&regexp_fields_rec);
+
+    TableSchema *tableSchema = getSchema(target_file, table_name);
+
+    char **cells = (char**) malloc(sizeof(char*) * tableSchema->number_of_fields);
+    memset(cells, 0, sizeof(char*) * tableSchema->number_of_fields);
+
+    if (tableSchema == NULL) {
+        free(s_cells);
+        return -1;
+    }
+
+    for (size_t i = 1; i <= num_of_cells; i++) {
+        char *field_name = substrToNewInstance(s_cells, cell_groups[2 * i - 1].rm_so, cell_groups[2 * i - 1].rm_eo);
+        size_t field_index;
+        for (field_index = 0; field_index < tableSchema->number_of_fields; field_index++)
+            if (strcmp(tableSchema->fields[field_index]->field_name, field_name) == 0) break;
+
+        free(field_name);
+        cells[field_index] = substrToNewInstance(s_cells, cell_groups[2 * i].rm_so, cell_groups[2 * i].rm_eo);
+    }
+
+    free(s_cells);
+
+    TableRecord *tableRecord = createTableRecord(tableSchema->number_of_fields, cells);
+
+    predicate *pred = parsePredicate(s_pred);
+    free(s_pred);
+
+    int exitcode = updateRowsPred(target_file, table_name, tableRecord, pred);
+
+    destroyTableRecord(tableRecord);
+    free_predicate(pred);
+
+    return exitcode;
+}
+
+typedef struct {
+    table_var_link *first;
+    table_var_link *second;
+} VarPair;
+
+table_var_link *parseTableVarLink(const char *serialized) {
+    if (!serialized) return NULL;
+    char *format = "^\\{\"t\":\"(.+?)\",\"v\":\"(.+?)\"\\}$";
+
+    regex_t regexp_rec;
+    regmatch_t groups[3];
+    int comp_ec, exec_ec;
+
+    comp_ec = regcomp(&regexp_rec, format, REG_EXTENDED);
+
+    if (comp_ec != REG_NOERROR) return NULL;
+
+    exec_ec = regexec(&regexp_rec, serialized, 3, groups, 0);
+
+    if (exec_ec == REG_NOMATCH) return NULL;
+
+    table_var_link *table_var = (table_var_link*) malloc(sizeof(table_var_link));
+    table_var->table = substrToNewInstance(serialized, groups[1].rm_so, groups[1].rm_eo);
+    table_var->var = substrToNewInstance(serialized, groups[2].rm_so, groups[2].rm_eo);
+
+    regfree(&regexp_rec);
+
+    return table_var;
+}
+
+VarPair *parseVariables(const char *serialized, size_t vn) {
+    if (!serialized || vn > 2) return NULL;
+    VarPair *varPair = (VarPair*) malloc(sizeof(VarPair));
+    varPair->first = NULL;
+    varPair->second = NULL;
+
+    if (vn == 1) varPair->first = parseTableVarLink(serialized);
+    else {
+        char *format = "^\\{\"t\":\"(.+?)\",\"v\":\"(.+?)\"\\},\\{\"t\":\"(.+?)\",\"v\":\"(.+?)\"\\}$";
+
+        regex_t regexp_rec;
+        regmatch_t groups[5];
+        int comp_ec, exec_ec;
+
+        comp_ec = regcomp(&regexp_rec, format, REG_EXTENDED);
+
+        if (comp_ec != REG_NOERROR) return NULL;
+
+        exec_ec = regexec(&regexp_rec, serialized, 5, groups, 0);
+
+        if (exec_ec == REG_NOMATCH) return NULL;
+
+        varPair->first = (table_var_link*) malloc(sizeof(table_var_link));
+        varPair->first->table = substrToNewInstance(serialized, groups[1].rm_so, groups[1].rm_eo);
+        varPair->first->var = substrToNewInstance(serialized, groups[2].rm_so, groups[2].rm_eo);
+        varPair->second->table = substrToNewInstance(serialized, groups[3].rm_so, groups[3].rm_eo);
+        varPair->second->var = substrToNewInstance(serialized, groups[4].rm_so, groups[4].rm_eo);
+
+        regfree(&regexp_rec);
+    }
+
+    return varPair;
+}
+
+typedef struct {
+    char *message;
+    int code;
+} SelectExitcode;
+
+SelectExitcode *parseSelectRequest(const char *target_file, const char *payload) {
+    if (!target_file || !payload) {
+        SelectExitcode *selectExitcode = (SelectExitcode*) malloc(sizeof(SelectExitcode));
+        selectExitcode->code = -1;
+        selectExitcode->message = createDataCell("Internal server error");
+        return selectExitcode;
+    }
+
+    char *format = "^\\{\"st\":\"(.)\",\"vn\":\"(.)\",\"v\":\\[(.+?)\\],\"rn\":\"(.+?)\",\"r\":\\[(.*)\\],\"pr\":(.*)\\}$";
+
+    regex_t regexp_rec;
+    regmatch_t groups[7];
+    int comp_ec, exec_ec;
+
+    comp_ec = regcomp(&regexp_rec, format, REG_EXTENDED);
+
+    if (comp_ec != REG_NOERROR) {
+        SelectExitcode *selectExitcode = (SelectExitcode*) malloc(sizeof(SelectExitcode));
+        selectExitcode->code = -1;
+        selectExitcode->message = createDataCell("Regex error");
+        return selectExitcode;
+    }
+
+    exec_ec = regexec(&regexp_rec, payload, 7, groups, 0);
+
+    if (exec_ec == REG_NOMATCH) {
+        SelectExitcode *selectExitcode = (SelectExitcode*) malloc(sizeof(SelectExitcode));
+        selectExitcode->code = -1;
+        selectExitcode->message = createDataCell("Regex: no match");
+        return selectExitcode;
+    }
+
+    size_t vn = payload[groups[2].rm_so] - '0';
+    char *s_vars = substrToNewInstance(payload, groups[2].rm_so, groups[2].rm_eo);
+    VarPair *varPair = parseVariables(s_vars, vn);
+    free(s_vars);
+
+    switch (payload[groups[1].rm_so] - '0') {
+        case 0: {
+            // Unfiltered
+            Table *table = unfilteredSelect(target_file, "");
+            break;
+        }
+        case 1: {
+            // Filtered
+            break;
+        }
+        case 2: {
+            // Joined
+            break;
+        }
+    }
+
+    regfree(&regexp_rec);
+    free(varPair);
+
+    SelectExitcode *selectExitcode = (SelectExitcode*) malloc(sizeof(SelectExitcode));
+    selectExitcode->code = -1;
+    selectExitcode->message = createDataCell("Internal server error");
+    return selectExitcode;
+}
+
 AQLServiceResponse *parse_and_execute(AQLServiceRequest *aqlServiceRequest, const char *target_file) {
     RequestHeader *requestHeader = parseRequestHeader(aqlServiceRequest->common_header);
     AQLServiceResponse *aqlServiceResponse = (AQLServiceResponse*) malloc(sizeof(AQLServiceResponse));
@@ -412,6 +627,18 @@ AQLServiceResponse *parse_and_execute(AQLServiceRequest *aqlServiceRequest, cons
         }
         case 1: {
             // Parse and execute as select (might be joined)
+            SelectExitcode *selectExitcode = parseSelectRequest(target_file, aqlServiceRequest->payload);
+            if (selectExitcode->code == 0) {
+                aqlServiceResponse->error = createDataCell("");
+                aqlServiceResponse->status = createDataCell("OK");
+                aqlServiceResponse->payload = createDataCell(selectExitcode->message);
+            } else {
+                aqlServiceResponse->error = createDataCell(selectExitcode->message);
+                aqlServiceResponse->status = createDataCell("ERROR");
+                aqlServiceResponse->payload = createDataCell("");
+            }
+            free(selectExitcode->message);
+            free(selectExitcode);
             break;
         }
         case 2: {
@@ -431,12 +658,20 @@ AQLServiceResponse *parse_and_execute(AQLServiceRequest *aqlServiceRequest, cons
         }
         case 3: {
             // Parse and execute as update
+            if (parseUpdateRequest(target_file, requestHeader->table, aqlServiceRequest->payload) == 0) {
+                aqlServiceResponse->error = createDataCell("");
+                aqlServiceResponse->status = createDataCell("OK");
+                aqlServiceResponse->payload = createDataCell("Rows updated successfully");
+            } else {
+                aqlServiceResponse->error = createDataCell("Invalid table name");
+                aqlServiceResponse->status = createDataCell("ERROR");
+                aqlServiceResponse->payload = createDataCell("");
+            }
             break;
         }
         case 4: {
             // Parse and execute as delete
-            int removed = parseDeleteRequest(target_file, requestHeader->table, aqlServiceRequest->payload);
-            if (removed >= 0) {
+            if (parseDeleteRequest(target_file, requestHeader->table, aqlServiceRequest->payload) >= 0) {
                 aqlServiceResponse->error = createDataCell("");
                 aqlServiceResponse->status = createDataCell("OK");
                 aqlServiceResponse->payload = createDataCell("Rows removed successfully");

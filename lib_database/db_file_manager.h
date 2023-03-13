@@ -218,6 +218,10 @@ void deleteRows(const char *filename, const char *table_name, size_t num_of_filt
 /// (SELECT FROM ... INNER JOIN ... ON ... WHERE ...)
 void innerJoinSelect(const char *filename, const char *left_table, const char *right_table, size_t l_join_index, size_t r_join_index, size_t num_of_l_filters, SearchFilter **l_filters, size_t num_of_r_filters, SearchFilter **r_filters);
 
+Table *unfilteredSelect(const char *filename, const char *table_name);
+
+int updateRowsPred(const char *filename, char *table_name, TableRecord *new_value, predicate *pred);
+
 int deleteRowsPred(const char *filename, const char *table_name, predicate *pred);
 
 #endif //LLP_LAB1_C_DB_FILE_MANAGER_H

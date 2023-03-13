@@ -35,7 +35,7 @@ SearchFilter *createSearchFilter(FieldType fieldType, int operation, char *opera
 /// Binds the filter to the column by its index.
 void bindFilter(SearchFilter *searchFilter, size_t column);
 
-/// Applies teh filter to the data cell. If the type is incompatible, returns FILTER_INCOMPATIBLE.
+/// Applies the filter to the data cell. If the type is incompatible, returns FILTER_INCOMPATIBLE.
 int applyFilter(SearchFilter *searchFilter, const char *dataCell);
 
 /// Filters a table record.
