@@ -35,13 +35,12 @@ double parseFloat(const char *line)
     return result;
 }
 
-SearchFilter *createSearchFilter(FieldType fieldType, void *lower_threshold, void *upper_threshold)
+SearchFilter *createSearchFilter(FieldType fieldType, int operation, char *operand)
 {
     SearchFilter *searchFilter = (SearchFilter*) malloc(sizeof(SearchFilter));
     searchFilter->fieldType = fieldType;
-    searchFilter->inverted = 0;
-    searchFilter->lower_threshold = lower_threshold;
-    searchFilter->upper_threshold = upper_threshold;
+    searchFilter->operation = operation;
+    searchFilter->operand = operand;
     return searchFilter;
 }
 
@@ -61,79 +60,142 @@ int cmpBoolean(const char *a, const char *b)
 int applyFilter(SearchFilter *searchFilter, const char *dataCell)
 {
     if (!searchFilter || !dataCell) return FILTER_NULL_POINTER;
+
+    /*
+        "==" 1
+        "!=" 2
+        "<>" 2
+        ">"  3
+        "<"  4
+        ">=" 5
+        "<=" 6
+        "~"  7
+     */
+
     switch (searchFilter->fieldType) {
         case INTEGER_F: {
-            int64_t cell_value = parseInteger(dataCell);
-            if (!searchFilter->lower_threshold) {
-                if (!searchFilter->upper_threshold) return FILTER_ACCEPT;
-                else {
-                    if (cell_value > *(int64_t*) searchFilter->upper_threshold) return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
+            switch (searchFilter->operation) {
+                case 1: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if (cell_value == operand_value) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
                 }
-            } else {
-                if (!searchFilter->upper_threshold) {
-                    if (cell_value < *(int64_t*) searchFilter->lower_threshold) return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
-                } else {
-                    if (cell_value < *(int64_t*) searchFilter->lower_threshold || cell_value > *(int64_t*) searchFilter->upper_threshold)
-                        return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
+                case 2: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if (cell_value != operand_value) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 3: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if (cell_value > operand_value) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 4: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if (cell_value < operand_value) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 5: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if (cell_value >= operand_value) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 6: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if (cell_value <= operand_value) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                default: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if (cell_value == operand_value) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
                 }
             }
         }
         case FLOAT_F: {
-            double cell_value = parseFloat(dataCell);
-            if (!searchFilter->lower_threshold) {
-                if (!searchFilter->upper_threshold) return FILTER_ACCEPT;
-                else {
-                    if ((cell_value - *(double*) searchFilter->upper_threshold) > FLOAT_CMP_EPS) return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
+            switch (searchFilter->operation) {
+                case 1: {
+                    float cell_value = parseFloat(dataCell), operand_value = parseFloat(searchFilter->operand);
+                    if (fabs(cell_value - operand_value) < FLOAT_CMP_EPS) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
                 }
-            } else {
-                if (!searchFilter->upper_threshold) {
-                    if ((cell_value - *(double*) searchFilter->lower_threshold) < -FLOAT_CMP_EPS) return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
-                } else {
-                    if ((cell_value - *(double*) searchFilter->upper_threshold) > FLOAT_CMP_EPS || (cell_value - *(double*) searchFilter->lower_threshold) < -FLOAT_CMP_EPS)
-                        return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
+                case 2: {
+                    float cell_value = parseFloat(dataCell), operand_value = parseFloat(searchFilter->operand);
+                    if (fabs(cell_value - operand_value) >= FLOAT_CMP_EPS) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 3: {
+                    float cell_value = parseFloat(dataCell), operand_value = parseFloat(searchFilter->operand);
+                    if ((cell_value - operand_value) > 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 4: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if ((cell_value - operand_value) < 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 5: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if ((cell_value - operand_value) >= FLOAT_CMP_EPS) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 6: {
+                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
+                    if ((operand_value - cell_value) >= FLOAT_CMP_EPS) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                default: {
+                    float cell_value = parseFloat(dataCell), operand_value = parseFloat(searchFilter->operand);
+                    if (fabs(cell_value - operand_value) < FLOAT_CMP_EPS) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
                 }
             }
         }
         case BOOLEAN_F: {
-            if (!searchFilter->lower_threshold) {
-                if (!searchFilter->upper_threshold) return FILTER_ACCEPT;
-                else {
-                    if (cmpBoolean(dataCell, (char*) searchFilter->upper_threshold) > 0) return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
+            switch (searchFilter->operation) {
+                case 1: {
+                    if (strcmp(dataCell, searchFilter->operand) == 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
                 }
-            } else {
-                if (!searchFilter->upper_threshold) {
-                    if (cmpBoolean(dataCell, (char*) searchFilter->lower_threshold) < 0) return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
-                } else {
-                    if (cmpBoolean(dataCell, (char*) searchFilter->lower_threshold) < 0 ||
-                        cmpBoolean(dataCell, (char*) searchFilter->upper_threshold) > 0)
-                        return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
+                default: {
+                    if (strcmp(dataCell, searchFilter->operand) == 0) return FILTER_REJECT;
+                    return FILTER_ACCEPT;
                 }
             }
         }
         default: {
-            if (!searchFilter->lower_threshold) {
-                if (!searchFilter->upper_threshold) return FILTER_ACCEPT;
-                else {
-                    if (strcmp(dataCell, (char*) searchFilter->upper_threshold) > 0) return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
+            switch (searchFilter->operation) {
+                case 1: {
+                    if (strcmp(dataCell, searchFilter->operand) == 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
                 }
-            } else {
-                if (!searchFilter->upper_threshold) {
-                    if (strcmp(dataCell, (char*) searchFilter->lower_threshold) < 0) return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
-                } else {
-                    if (strcmp(dataCell, (char*) searchFilter->lower_threshold) < 0 || strcmp(dataCell, (char*) searchFilter->upper_threshold) > 0)
-                        return FILTER_REJECT;
-                    else return FILTER_ACCEPT;
+                case 2: {
+                    if (strcmp(dataCell, searchFilter->operand) == 0) return FILTER_REJECT;
+                    return FILTER_ACCEPT;
+                }
+                case 3: {
+                    if (strcmp(dataCell, searchFilter->operand) > 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 4: {
+                    if (strcmp(dataCell, searchFilter->operand) < 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 5: {
+                    if (strcmp(dataCell, searchFilter->operand) >= 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 6: {
+                    if (strcmp(dataCell, searchFilter->operand) <= 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                case 7: {
+                    if (strstr(dataCell, searchFilter->operand)) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
+                }
+                default: {
+                    if (strcmp(dataCell, searchFilter->operand) == 0) return FILTER_ACCEPT;
+                    return FILTER_REJECT;
                 }
             }
         }
@@ -148,9 +210,6 @@ int applyAll(TableRecord *tableRecord, size_t num_of_filters, SearchFilter **fil
     for (size_t i = 0; i < num_of_filters; i++) {
         if (filters[i]->field_index > tableRecord->length) return FILTER_INCOMPATIBLE;
         int exitcode = applyFilter(filters[i], tableRecord->dataCells[filters[i]->field_index]);
-
-        if (filters[i]->inverted && exitcode >= 0) exitcode = !exitcode;
-
         if (exitcode == FILTER_ACCEPT) continue;
         else return exitcode;
     }
@@ -162,4 +221,70 @@ void destroySearchFilter(SearchFilter *searchFilter)
 {
     if (!searchFilter) return;
     free(searchFilter);
+}
+
+int invertExitcode(int exitcode) {
+    if (exitcode == FILTER_ACCEPT) return FILTER_REJECT;
+    if (exitcode == FILTER_REJECT) return FILTER_ACCEPT;
+    return exitcode;
+}
+
+void invertFilter(SearchFilter *searchFilter) {
+    switch (searchFilter->operation) {
+        case 1:
+            searchFilter->operation = 2; // == -> !=
+            break;
+        case 2:
+            searchFilter->operation = 1; // != -> ==
+            break;
+        case 3:
+            searchFilter->operation = 6; // > -> <=
+            break;
+        case 4:
+            searchFilter->operation = 5; // < -> >=
+            break;
+        case 5:
+            searchFilter->operation = 4; // >= -> <
+            break;
+        case 6:
+            searchFilter->operation = 3; // <= -> >
+            break;
+    }
+}
+
+int applySimplePredicate(TableSchema *tableSchema, TableRecord *tableRecord, predicate *pred) {
+    if (!tableSchema || !tableRecord || !pred) return FILTER_NULL_POINTER;
+
+    if (pred->l_type == 0 || pred->r_type == 0) return FILTER_INCOMPATIBLE;
+    size_t index;
+    for (index = 0; strcmp(pred->l_ref->field, tableSchema->fields[index]->field_name) != 0 && index < tableSchema->number_of_fields; index++);
+    SearchFilter *filter = createSearchFilter(tableSchema->fields[index]->fieldType, pred->cmp_type, pred->r_lit->value);
+    bindFilter(filter, index);
+
+    int exitcode = applyFilter(filter, tableRecord->dataCells[index]);
+    destroySearchFilter(filter);
+
+    return exitcode;
+}
+
+int applySingleTablePredicate(TableSchema *tableSchema, TableRecord *tableRecord, predicate *pred) {
+    if (!tableSchema || !tableRecord) return FILTER_NULL_POINTER;
+    if (!pred) return FILTER_ACCEPT;
+    if (pred->l_type != 0 && pred->r_type != 0) return applySimplePredicate(tableSchema, tableRecord, pred);
+
+    int left_res, right_res;
+    if (pred->priority == 0) {
+        left_res = applySimplePredicate(tableSchema, tableRecord, pred->left);
+        right_res = applySingleTablePredicate(tableSchema, tableRecord, pred->right);
+    } else {
+        right_res = applySingleTablePredicate(tableSchema, tableRecord, pred->right);
+        left_res = applySingleTablePredicate(tableSchema, tableRecord, pred->left);
+    }
+
+    if (pred->op_type == 1) return left_res || right_res;
+    return left_res && right_res;
+}
+
+int applyDoubleTablePredicate(TableSchema *leftSchema, TableSchema *rightSchema, TableRecord *tableRecord, predicate *pred) {
+    if (!leftSchema || !rightSchema || !tableRecord || !pred) return FILTER_NULL_POINTER;
 }

@@ -184,6 +184,12 @@ Table *parseInsertRequest(const char *target_file, char *table_name, char *paylo
 
     TableSchema *tableSchema = getSchema(target_file, table_name);
 
+    if (tableSchema == NULL) {
+        free(s_cell_number);
+        free(s_cells);
+        return NULL;
+    }
+
     for (size_t i = 1; i <= num_of_cells; i++) {
         char *field_name = substrToNewInstance(s_cells, cell_groups[2 * i - 1].rm_so, cell_groups[2 * i - 1].rm_eo);
         size_t field_index;
@@ -201,6 +207,187 @@ Table *parseInsertRequest(const char *target_file, char *table_name, char *paylo
     insertTableRecord(table, createTableRecord(num_of_cells, cells));
 
     return table;
+}
+
+literal *parseLiteral(char *serialized) {
+    if (!serialized) return NULL;
+    char *format = (char*) malloc(strlen("^\\{'T':'(.)','V':'(.+?)'\\}$") + 1);
+    memcpy(format, "^\\{\"T\":\"(.)\",\"V\":\"(.+?)\"\\}$", strlen("^\\{\"T\":\"(.)\",\"V\":\"(.+?)\"\\}$"));
+    format[strlen("^\\{\"T\":\"(.)\",\"V\":\"(.+?)\"\\}$")] = 0;
+
+    regex_t regexp_rec;
+    regmatch_t groups[3];
+    int comp_ec, exec_ec;
+
+    comp_ec = regcomp(&regexp_rec, format, REG_EXTENDED);
+
+    if (comp_ec != REG_NOERROR) return NULL;
+
+    exec_ec = regexec(&regexp_rec, serialized, 3, groups, 0);
+
+    if (exec_ec == REG_NOMATCH) return NULL;
+
+    literal *lit = (literal*) malloc(sizeof(literal));
+    lit->type = serialized[groups[1].rm_so] - '0';
+    lit->value = substrToNewInstance(serialized, groups[2].rm_so, groups[2].rm_eo);
+
+    free(format);
+    regfree(&regexp_rec);
+
+    return lit;
+}
+
+reference *parseReference(char *serialized) {
+    if (!serialized) return NULL;
+    char *format = (char*) malloc(strlen("^\\{'T':'(.+?)','F':'(.+?)'\\}$") + 1);
+    memcpy(format, "^\\{\"T\":\"(.+?)\",\"F\":\"(.+?)\"\\}$", strlen("^\\{\"T\":\"(.+?)\",\"F\":\"(.+?)\"\\}$"));
+    format[strlen("^\\{\"T\":\"(.+?)\",\"F\":\"(.+?)\"\\}$")] = 0;
+
+    regex_t regexp_rec;
+    regmatch_t groups[3];
+    int comp_ec, exec_ec;
+
+    comp_ec = regcomp(&regexp_rec, format, REG_EXTENDED);
+
+    if (comp_ec != REG_NOERROR) return NULL;
+
+    exec_ec = regexec(&regexp_rec, serialized, 3, groups, 0);
+
+    if (exec_ec == REG_NOMATCH) return NULL;
+
+    reference *ref = (reference*) malloc(sizeof(reference));
+    ref->table = substrToNewInstance(serialized, groups[1].rm_so, groups[1].rm_eo);
+    ref->field = substrToNewInstance(serialized, groups[2].rm_so, groups[2].rm_eo);
+
+    free(format);
+    regfree(&regexp_rec);
+
+    return ref;
+}
+
+typedef struct {
+    char *left;
+    char *right;
+} PredicateBranches;
+
+PredicateBranches *separateBranches(char *serialized) {
+    if (!serialized) return NULL;
+
+    size_t br_count = 1, l_so = 4, l_eo, r_so, r_eo = strlen(serialized);
+
+    for (l_eo = l_so + 1; br_count != 0 && l_eo < strlen(serialized); l_eo++) {
+        if (serialized[l_eo] == '{') br_count++;
+        if (serialized[l_eo] == '}') br_count--;
+    }
+
+    r_so = l_eo + 5;
+
+    PredicateBranches *branches = (PredicateBranches*) malloc(sizeof(PredicateBranches));
+    branches->left = substrToNewInstance(serialized, l_so, l_eo);
+    branches->right = substrToNewInstance(serialized, r_so, r_eo);
+    return branches;
+}
+
+predicate *parsePredicate(char *serialized) {
+    if (!serialized) return NULL;
+    char *format = "^\\{\"lt\":\"(.)\",\"rt\":\"(.)\",\"ct\":\"(.)\",\"ot\":\"(.)\",\"p\":\"(.)\",(.+?)\\}$";
+
+    // 1 - l_type
+    // 2 - r_type
+    // 3 - cmp_type
+    // 4 - op_type
+    // 5 - priority
+    // 6 - branches
+
+    regex_t regexp_rec;
+    regmatch_t groups[7];
+    int comp_ec, exec_ec;
+
+    comp_ec = regcomp(&regexp_rec, format, REG_EXTENDED);
+
+    if (comp_ec != REG_NOERROR) return NULL;
+
+    exec_ec = regexec(&regexp_rec, serialized, 7, groups, 0);
+
+    if (exec_ec == REG_NOMATCH) return NULL;
+
+    predicate *pred = (predicate*) malloc(sizeof(predicate));
+
+    pred->l_type = serialized[groups[1].rm_so] - '0';
+    pred->r_type = serialized[groups[2].rm_so] - '0';
+    pred->cmp_type = serialized[groups[3].rm_so] - '0';
+    pred->op_type = serialized[groups[4].rm_so] - '0';
+    pred->priority = serialized[groups[5].rm_so] - '0';
+
+    regfree(&regexp_rec);
+
+    char *str_branches = substrToNewInstance(serialized, groups[6].rm_so, groups[6].rm_eo);
+    PredicateBranches *branches = separateBranches(str_branches);
+
+    switch (pred->l_type) {
+        case 0:
+            // predicate
+            pred->left = parsePredicate(branches->left);
+            break;
+        case 1:
+            // reference
+            pred->l_ref = parseReference(branches->left);
+            break;
+        case 2:
+            // literal
+            pred->l_lit = parseLiteral(branches->left);
+            break;
+    }
+
+    switch (pred->r_type) {
+        case 0:
+            // predicate
+            pred->right = parsePredicate(branches->right);
+            break;
+        case 1:
+            // reference
+            pred->r_ref = parseReference(branches->right);
+            break;
+        case 2:
+            // literal
+            pred->r_lit = parseLiteral(branches->right);
+            break;
+    }
+
+    free(branches->left);
+    free(branches->right);
+    free(branches);
+    free(str_branches);
+
+    return pred;
+}
+
+int parseDeleteRequest(const char *target_file, char *table_name, char *payload) {
+    if (!target_file || !table_name || !payload) return -1;
+
+    regex_t regexp_rec;
+    regmatch_t groups[2];
+    int comp_ec, exec_ec;
+
+    comp_ec = regcomp(&regexp_rec, "^\\{\"vn\":\".*\",\"v\":\\[.*\\],\"pr\":(.*)\\}$", REG_EXTENDED);
+
+    if (comp_ec != REG_NOERROR) return -1;
+
+    exec_ec = regexec(&regexp_rec, payload, 2, groups, 0);
+
+    if (exec_ec == REG_NOMATCH) return -1;
+
+    char *str_pred = substrToNewInstance(payload, groups[1].rm_so, groups[1].rm_eo);
+    predicate *pred = parsePredicate(str_pred);
+    free(str_pred);
+
+    regfree(&regexp_rec);
+
+    int removed = deleteRowsPred(target_file, table_name, pred);
+
+    free_predicate(pred);
+
+    return removed;
 }
 
 AQLServiceResponse *parse_and_execute(AQLServiceRequest *aqlServiceRequest, const char *target_file) {
@@ -248,6 +435,16 @@ AQLServiceResponse *parse_and_execute(AQLServiceRequest *aqlServiceRequest, cons
         }
         case 4: {
             // Parse and execute as delete
+            int removed = parseDeleteRequest(target_file, requestHeader->table, aqlServiceRequest->payload);
+            if (removed >= 0) {
+                aqlServiceResponse->error = createDataCell("");
+                aqlServiceResponse->status = createDataCell("OK");
+                aqlServiceResponse->payload = createDataCell("Rows removed successfully");
+            } else {
+                aqlServiceResponse->error = createDataCell("Invalid table name");
+                aqlServiceResponse->status = createDataCell("ERROR");
+                aqlServiceResponse->payload = createDataCell("");
+            }
             break;
         }
         case 5: {
@@ -283,6 +480,8 @@ int server(const char *url, const char *target_file)
         nn_close(fd);
         return -1;
     }
+
+    printf("Server is up\n");
 
     struct AQLDataPacked response_packed;
 

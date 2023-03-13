@@ -207,7 +207,7 @@ void print_predicate(predicate *pred, int tabs) {
                 l_type_s = "reference";
                 break;
             case 2:
-                l_type_s = "predicate";
+                l_type_s = "literal";
                 break;
         }
 
@@ -219,7 +219,7 @@ void print_predicate(predicate *pred, int tabs) {
                 r_type_s = "reference";
                 break;
             case 2:
-                r_type_s = "predicate";
+                r_type_s = "literal";
                 break;
         }
 

@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include "db_internals.h"
+#include "../data.h"
 
 #define FLOAT_CMP_EPS 0.0000000001
 #define FILTER_REJECT 0
@@ -18,9 +19,8 @@
 typedef struct {
     FieldType fieldType;
     size_t field_index;
-    int inverted;
-    void *lower_threshold;
-    void *upper_threshold;
+    int operation;
+    char *operand;
 } SearchFilter;
 
 /// Parses a data cell into an Integer value.
@@ -30,7 +30,7 @@ int64_t parseInteger(const char *line);
 double parseFloat(const char *line);
 
 /// Creates a new instance of a SearchFilter.
-SearchFilter *createSearchFilter(FieldType fieldType, void *lower_threshold, void *upper_threshold);
+SearchFilter *createSearchFilter(FieldType fieldType, int operation, char *operand);
 
 /// Binds the filter to the column by its index.
 void bindFilter(SearchFilter *searchFilter, size_t column);
@@ -43,5 +43,13 @@ int applyAll(TableRecord *tableRecord, size_t num_of_filters, SearchFilter **fil
 
 /// Destroys the SearchFilter.
 void destroySearchFilter(SearchFilter *searchFilter);
+
+int invertExitcode(int exitcode);
+
+void invertFilter(SearchFilter *searchFilter);
+
+int applySingleTablePredicate(TableSchema *tableSchema, TableRecord *tableRecord, predicate *pred);
+
+int applyJoinPredicate(TableSchema *leftSchema, TableSchema *rightSchema, TableRecord *tableRecord, predicate *pred);
 
 #endif //LLP_LAB1_C_DB_INTERFACE_H

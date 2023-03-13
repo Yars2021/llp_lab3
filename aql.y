@@ -135,7 +135,6 @@ predicate:  predicate OP predicate {$$ = create_complex_predicate($2, $1, $3, 0)
 |           predicate OP LBR predicate RBR {$$ = create_complex_predicate($2, $1, $4, 1);}
 |           reference CMP reference {$$ = create_simple_predicate(1, 1, $2, NULL, NULL, $1, $3);}
 |           reference CMP literal {$$ = create_simple_predicate(1, 2, $2, NULL, $3, $1, NULL);}
-|           literal CMP reference {$$ = create_simple_predicate(2, 1, $2, $1, NULL, NULL, $3);}
 ;
 
 references: reference COMMA references {$$ = $1; $1->next = $3;}

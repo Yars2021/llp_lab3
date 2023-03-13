@@ -951,3 +951,55 @@ void innerJoinSelect(const char *filename, const char *left_table, const char *r
     destroyTableSchema(leftSchema);
     destroyTableSchema(rightSchema);
 }
+
+int deleteRowsPred(const char *filename, const char *table_name, predicate *pred) {
+    if (!filename || !table_name) return -1;
+    size_t search_result = findTable(filename, table_name);
+    if (search_result == SEARCH_TABLE_NOT_FOUND) return -1;
+
+    DataPage *tableHeader = (DataPage*) malloc(sizeof(DataPage));
+    readDataPage(filename, tableHeader, search_result);
+    size_t length = getTableLength(tableHeader), data = tableHeader->header.next_related_page, pos;
+    TableSchema *tableSchema = parseTableSchemaJSON(tableHeader->page_data, 0, &pos);
+    free(tableHeader);
+
+    size_t index = 0, page_index, removed = 0, parent_index, expel_candidate;
+    for (uint64_t current = data, last = search_result; current != last && index < length;) {
+        parent_index = last;
+        expel_candidate = current;
+        last = current;
+        DataPage *dataPage = (DataPage*) malloc(sizeof(DataPage));
+        readDataPage(filename, dataPage, current);
+        current = dataPage->header.next_related_page;
+        page_index = 0;
+        for (; page_index < dataPage->header.data_size && index < length; page_index += (strlen(dataPage->page_data + page_index) + 1), index++) {
+            while (dataPage->page_data[page_index] == '\0' && page_index < PAGE_DATA_SIZE) page_index++;
+            if (page_index >= PAGE_DATA_SIZE) {
+                if (index > 0) index--;
+                break;
+            }
+            TableRecord *tableRecord = parseTableRecordJSON(dataPage->page_data + page_index, 0, &pos, tableSchema);
+
+            if (applySingleTablePredicate(tableSchema, tableRecord, pred) == FILTER_ACCEPT) {
+                memset(dataPage->page_data + page_index, '\0', pos);
+                removed++;
+            }
+
+            destroyTableRecord(tableRecord);
+        }
+        writeDataPage(filename, dataPage);
+        free(dataPage);
+
+        if (checkEmpty(filename, expel_candidate)) expelPageFromThread(filename, parent_index, expel_candidate);
+    }
+
+    destroyTableSchema(tableSchema);
+
+    tableHeader = (DataPage*) malloc(sizeof(DataPage));
+    readDataPage(filename, tableHeader, search_result);
+    updateTableLength(tableHeader, getTableLength(tableHeader) - removed);
+    writeDataPage(filename, tableHeader);
+    free(tableHeader);
+
+    return removed;
+}
