@@ -528,6 +528,7 @@ VarPair *parseVariables(const char *serialized, size_t vn) {
         if (exec_ec == REG_NOMATCH) return NULL;
 
         varPair->first = (table_var_link*) malloc(sizeof(table_var_link));
+        varPair->second = (table_var_link*) malloc(sizeof(table_var_link));
         varPair->first->table = substrToNewInstance(serialized, groups[1].rm_so, groups[1].rm_eo);
         varPair->first->var = substrToNewInstance(serialized, groups[2].rm_so, groups[2].rm_eo);
         varPair->second->table = substrToNewInstance(serialized, groups[3].rm_so, groups[3].rm_eo);

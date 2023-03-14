@@ -256,13 +256,33 @@ int applySimplePredicate(TableSchema *tableSchema, TableRecord *tableRecord, pre
     if (!tableSchema || !tableRecord || !pred) return FILTER_NULL_POINTER;
 
     if (pred->l_type == 0 || pred->r_type == 0) return FILTER_INCOMPATIBLE;
-    size_t index;
-    for (index = 0; strcmp(pred->l_ref->field, tableSchema->fields[index]->field_name) != 0 && index < tableSchema->number_of_fields; index++);
-    SearchFilter *filter = createSearchFilter(tableSchema->fields[index]->fieldType, pred->cmp_type, pred->r_lit->value);
-    bindFilter(filter, index);
+    int exitcode;
+    switch (pred->r_type) {
+        case 1: {
+            size_t index1, index2;
+            if (strcmp(pred->l_ref->table, pred->r_ref->table) != 0) return FILTER_ACCEPT;
+            for (index1 = 0; strcmp(pred->l_ref->field, tableSchema->fields[index1]->field_name) != 0 && index1 < tableSchema->number_of_fields; index1++);
+            for (index2 = 0; strcmp(pred->r_ref->field, tableSchema->fields[index2]->field_name) != 0 && index2 < tableSchema->number_of_fields; index2++);
+            SearchFilter *filter = createSearchFilter(tableSchema->fields[index1]->fieldType, pred->cmp_type,
+                                                      tableRecord->dataCells[index2]);
+            bindFilter(filter, index1);
 
-    int exitcode = applyFilter(filter, tableRecord->dataCells[index]);
-    destroySearchFilter(filter);
+            exitcode = applyFilter(filter, tableRecord->dataCells[index1]);
+            destroySearchFilter(filter);
+            return exitcode;
+        }
+        case 2: {
+            size_t index;
+            for (index = 0; strcmp(pred->l_ref->field, tableSchema->fields[index]->field_name) != 0 &&
+                            index < tableSchema->number_of_fields; index++);
+            SearchFilter *filter = createSearchFilter(tableSchema->fields[index]->fieldType, pred->cmp_type,
+                                                      pred->r_lit->value);
+            bindFilter(filter, index);
+
+            exitcode = applyFilter(filter, tableRecord->dataCells[index]);
+            destroySearchFilter(filter);
+        }
+    }
 
     return exitcode;
 }
@@ -274,7 +294,7 @@ int applySingleTablePredicate(TableSchema *tableSchema, TableRecord *tableRecord
 
     int left_res, right_res;
     if (pred->priority == 0) {
-        left_res = applySimplePredicate(tableSchema, tableRecord, pred->left);
+        left_res = applySingleTablePredicate(tableSchema, tableRecord, pred->left);
         right_res = applySingleTablePredicate(tableSchema, tableRecord, pred->right);
     } else {
         right_res = applySingleTablePredicate(tableSchema, tableRecord, pred->right);
@@ -290,14 +310,33 @@ int applySimpleVarPredicate(TableSchema *tableSchema, const char *var, TableReco
 
     if (pred->l_type == 0 || pred->r_type == 0) return FILTER_INCOMPATIBLE;
     if (pred->l_type == 1 && strcmp(pred->l_ref->table, var) != 0) return FILTER_ACCEPT;
-    if (pred->l_type == 1 && pred->r_type == 1) return FILTER_ACCEPT;
-    size_t index;
-    for (index = 0; strcmp(pred->l_ref->field, tableSchema->fields[index]->field_name) != 0 && index < tableSchema->number_of_fields; index++);
-    SearchFilter *filter = createSearchFilter(tableSchema->fields[index]->fieldType, pred->cmp_type, pred->r_lit->value);
-    bindFilter(filter, index);
+    int exitcode;
+    switch (pred->r_type) {
+        case 1: {
+            size_t index1, index2;
+            if (strcmp(pred->l_ref->table, pred->r_ref->table) != 0) return FILTER_ACCEPT;
+            for (index1 = 0; strcmp(pred->l_ref->field, tableSchema->fields[index1]->field_name) != 0 && index1 < tableSchema->number_of_fields; index1++);
+            for (index2 = 0; strcmp(pred->r_ref->field, tableSchema->fields[index2]->field_name) != 0 && index2 < tableSchema->number_of_fields; index2++);
+            SearchFilter *filter = createSearchFilter(tableSchema->fields[index1]->fieldType, pred->cmp_type,
+                                                      tableRecord->dataCells[index2]);
+            bindFilter(filter, index1);
 
-    int exitcode = applyFilter(filter, tableRecord->dataCells[index]);
-    destroySearchFilter(filter);
+            exitcode = applyFilter(filter, tableRecord->dataCells[index1]);
+            destroySearchFilter(filter);
+            return exitcode;
+        }
+        case 2: {
+            size_t index;
+            for (index = 0; strcmp(pred->l_ref->field, tableSchema->fields[index]->field_name) != 0 &&
+                            index < tableSchema->number_of_fields; index++);
+            SearchFilter *filter = createSearchFilter(tableSchema->fields[index]->fieldType, pred->cmp_type,
+                                                      pred->r_lit->value);
+            bindFilter(filter, index);
+
+            exitcode = applyFilter(filter, tableRecord->dataCells[index]);
+            destroySearchFilter(filter);
+        }
+    }
 
     return exitcode;
 }
@@ -322,14 +361,32 @@ int applyVarTablePredicate(TableSchema *tableSchema, TableRecord *tableRecord, c
 
 JoinIndexes *findJoinIndexes(TableSchema *leftSchema, TableSchema *rightSchema, const char *left_var, const char *right_var, predicate *pred) {
     if (!left_var || !right_var || !pred) return NULL;
+    if (pred->l_type == 2 || pred->r_type == 2) return NULL;
 
-    JoinIndexes *joinIndexes = NULL;
+    JoinIndexes *joinIndexes;
 
     if (pred->l_type == 1 && pred->r_type == 1) {
+        size_t index1, index2;
+        if (strcmp(pred->l_ref->table, pred->r_ref->table) == 0) return NULL;
+        for (index1 = 0; strcmp(pred->l_ref->field, leftSchema->fields[index1]->field_name) != 0 && index1 < leftSchema->number_of_fields; index1++);
+        for (index2 = 0; strcmp(pred->r_ref->field, rightSchema->fields[index2]->field_name) != 0 && index2 < rightSchema->number_of_fields; index2++);
 
+        if (strcmp(pred->l_ref->field, leftSchema->fields[index1]->field_name) != 0) return NULL;
+        if (strcmp(pred->r_ref->field, rightSchema->fields[index2]->field_name) != 0) return NULL;
+
+        joinIndexes = (JoinIndexes*) malloc(sizeof(JoinIndexes));
+        joinIndexes->left = index1;
+        joinIndexes->right = index2;
+
+        return joinIndexes;
     }
 
     if (pred->l_type == 0 && pred->r_type == 0) {
-        //joinIndexes = findJoinIndexes(left_var, right_var, pred->left);
+        joinIndexes = findJoinIndexes(leftSchema, rightSchema, left_var, right_var, pred->left);
+        if (joinIndexes != NULL) return joinIndexes;
+        joinIndexes = findJoinIndexes(leftSchema, rightSchema, left_var, right_var, pred->right);
+        return joinIndexes;
     }
+
+    return NULL;
 }

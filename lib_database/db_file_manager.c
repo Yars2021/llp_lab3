@@ -1021,17 +1021,29 @@ Table *filteredSelect(const char *filename, const char *table_name, const char *
 
     return table;
 }
-
+// CREATE TABLE aaa (a: INTEGER, b: INTEGER); CREATE TABLE bbb (a: INTEGER, x: INTEGER); FOR i IN aaa FOR j IN bbb FILTER i.a == j.x RETURN *;
 Table *joinedSelect(const char *filename, const char *left_table, const char *left_var, const char *right_table, const char *right_var, predicate *pred, int field_number, reference **refs) {
     if (!filename || !left_table || !right_table || !pred) return NULL;
     size_t left_search = findTable(filename, left_table), right_search = findTable(filename, right_table);
     if (left_search == SEARCH_TABLE_NOT_FOUND || right_table == SEARCH_TABLE_NOT_FOUND) return NULL;
     TableSchema *leftSchema = getSchema(filename, left_table), *rightSchema = getSchema(filename, right_table);
 
+    JoinIndexes *joinIndexes = findJoinIndexes(leftSchema, rightSchema, left_var, right_var, pred);
+
+    if (!joinIndexes) {
+        destroyTableSchema(leftSchema);
+        destroyTableSchema(rightSchema);
+        return NULL;
+    }
+
     Table *leftTable = filteredSelect(filename, left_table, left_var, pred, 0, NULL);
     Table *rightTable = filteredSelect(filename, left_table, right_var, pred, 0, NULL);
+    
+    printf("%zd %zd\n", joinIndexes->left, joinIndexes->right);
+    free(joinIndexes);
 
-
+    destroyTable(leftTable);
+    destroyTable(rightTable);
 }
 
 int updateRowsPred(const char *filename, char *table_name, TableRecord *new_value, predicate *pred) {
