@@ -1021,7 +1021,21 @@ Table *filteredSelect(const char *filename, const char *table_name, const char *
 
     return table;
 }
-// CREATE TABLE aaa (a: INTEGER, b: INTEGER); CREATE TABLE bbb (a: INTEGER, x: INTEGER); FOR i IN aaa FOR j IN bbb FILTER i.a == j.x RETURN *;
+
+char *concat(char *a, char *b) {
+    if (!a || !b) return NULL;
+
+    char *res = malloc(strlen(a) + strlen(b) + 2);
+    memcpy(res, a, strlen(a));
+    res[strlen(a)] = '.';
+    memcpy(res + strlen(a) + 1, b, strlen(b));
+    res[strlen(a) + strlen(b) + 1] = 0;
+    free(a);
+    free(b);
+
+    return res;
+}
+
 Table *joinedSelect(const char *filename, const char *left_table, const char *left_var, const char *right_table, const char *right_var, predicate *pred, int field_number, reference **refs) {
     if (!filename || !left_table || !right_table || !pred) return NULL;
     size_t left_search = findTable(filename, left_table), right_search = findTable(filename, right_table);
@@ -1036,14 +1050,116 @@ Table *joinedSelect(const char *filename, const char *left_table, const char *le
         return NULL;
     }
 
+    TableSchema *joinedSchema;
+    size_t num_of_left_indexes = 0;
+    size_t left_indexes[field_number];
+    size_t num_of_right_indexes = 0;
+    size_t right_indexes[field_number];
+
+    if (field_number == 0) {
+        Field **joined_fields = (Field**) malloc(sizeof(Field*) * (leftSchema->number_of_fields + rightSchema->number_of_fields - 1));
+        size_t index = 0;
+        for (size_t i = 0; i < leftSchema->number_of_fields; i++)
+            if (i != joinIndexes->left) {
+                joined_fields[index] = createField(
+                        concat(createDataCell(left_table), createDataCell(leftSchema->fields[i]->field_name)),
+                        leftSchema->fields[i]->fieldType);
+                index++;
+            }
+        joined_fields[index] = createField(
+                concat(concat(createDataCell(left_table), createDataCell(leftSchema->fields[joinIndexes->left]->field_name)),
+                       concat(createDataCell(right_table), createDataCell(rightSchema->fields[joinIndexes->right]->field_name))),
+                leftSchema->fields[joinIndexes->left]->fieldType);
+        index++;
+        for (size_t i = 0; i < rightSchema->number_of_fields; i++)
+            if (i != joinIndexes->right) {
+                joined_fields[index] = createField(
+                        concat(createDataCell(right_table), createDataCell(rightSchema->fields[i]->field_name)),
+                        rightSchema->fields[i]->fieldType);
+                index++;
+            }
+        joinedSchema = createTableSchema(joined_fields, leftSchema->number_of_fields + rightSchema->number_of_fields - 1, 0);
+    } else {
+        Field **joined_fields = (Field**) malloc(sizeof(Field *) * field_number);
+        size_t index = 0;
+        for (size_t i = 0; i < field_number; i++) {
+            for (size_t j = 0; j < leftSchema->number_of_fields; j++)
+                if (strcmp(leftSchema->fields[j]->field_name, refs[i]->field) == 0 && strcmp(left_var, refs[i]->table) == 0) {
+                    joined_fields[index] = createField(
+                            concat(createDataCell(left_table), createDataCell(leftSchema->fields[j]->field_name)),
+                            leftSchema->fields[j]->fieldType);
+                    left_indexes[num_of_left_indexes] = j;
+                    num_of_left_indexes++;
+                    index++;
+                }
+        }
+        for (size_t i = 0; i < field_number; i++) {
+            for (size_t j = 0; j < rightSchema->number_of_fields; j++)
+                if (strcmp(rightSchema->fields[j]->field_name, refs[i]->field) == 0 && strcmp(right_var, refs[i]->table) == 0) {
+                    joined_fields[index] = createField(
+                            concat(createDataCell(right_table), createDataCell(rightSchema->fields[j]->field_name)),
+                            rightSchema->fields[j]->fieldType);
+                    right_indexes[num_of_right_indexes] = j;
+                    num_of_right_indexes++;
+                    index++;
+                }
+        }
+
+        joinedSchema = createTableSchema(joined_fields, field_number, 0);
+    }
+
     Table *leftTable = filteredSelect(filename, left_table, left_var, pred, 0, NULL);
-    Table *rightTable = filteredSelect(filename, left_table, right_var, pred, 0, NULL);
-    
-    printf("%zd %zd\n", joinIndexes->left, joinIndexes->right);
+    Table *rightTable = filteredSelect(filename, right_table, right_var, pred, 0, NULL);
+
+    Table *resTable = createTable(joinedSchema, "_join_result");
+
+    TableRecord *leftRecord = leftTable->firstTableRecord;
+    for (size_t i = 0; i < leftTable->length; i++, leftRecord = leftRecord->next_record) {
+        TableRecord *rightRecord = rightTable->firstTableRecord;
+        for (size_t j = 0; j < rightTable->length; j++, rightRecord = rightRecord->next_record) {
+            if (strcmp(leftRecord->dataCells[joinIndexes->left], rightRecord->dataCells[joinIndexes->right]) == 0) {
+                char **data_cells;
+                TableRecord *newRecord;
+                if (field_number == 0) {
+                    data_cells = malloc(leftRecord->length + rightRecord->length - 1);
+                    size_t index = 0;
+                    for (size_t l_i = 0; l_i < leftRecord->length; l_i++)
+                        if (l_i != joinIndexes->left) {
+                            data_cells[index] = createDataCell(leftRecord->dataCells[l_i]);
+                            index++;
+                        }
+                    data_cells[index] = createDataCell(leftRecord->dataCells[joinIndexes->left]);
+                    index++;
+                    for (size_t r_i = 0; r_i < rightRecord->length; r_i++)
+                        if (r_i != joinIndexes->right) {
+                            data_cells[index] = createDataCell(rightRecord->dataCells[r_i]);
+                            index++;
+                        }
+                    newRecord = createTableRecord(leftRecord->length + rightRecord->length - 1, data_cells);
+                } else {
+                    data_cells = malloc(field_number);
+                    size_t index = 0;
+                    for (size_t l_i = 0; l_i < num_of_left_indexes; l_i++) {
+                        data_cells[index] = createDataCell(leftRecord->dataCells[left_indexes[l_i]]);
+                        index++;
+                    }
+                    for (size_t r_i = 0; r_i < num_of_right_indexes; r_i++) {
+                        data_cells[index] = createDataCell(rightRecord->dataCells[right_indexes[r_i]]);
+                        index++;
+                    }
+                    newRecord = createTableRecord(field_number, data_cells);
+                }
+                insertTableRecord(resTable, newRecord);
+            }
+        }
+    }
+
     free(joinIndexes);
 
     destroyTable(leftTable);
     destroyTable(rightTable);
+
+    return resTable;
 }
 
 int updateRowsPred(const char *filename, char *table_name, TableRecord *new_value, predicate *pred) {

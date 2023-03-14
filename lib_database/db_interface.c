@@ -373,6 +373,7 @@ JoinIndexes *findJoinIndexes(TableSchema *leftSchema, TableSchema *rightSchema, 
 
         if (strcmp(pred->l_ref->field, leftSchema->fields[index1]->field_name) != 0) return NULL;
         if (strcmp(pred->r_ref->field, rightSchema->fields[index2]->field_name) != 0) return NULL;
+        if (pred->cmp_type != 1) return NULL;
 
         joinIndexes = (JoinIndexes*) malloc(sizeof(JoinIndexes));
         joinIndexes->left = index1;
