@@ -679,8 +679,8 @@ char *serialize_statement(statement *stmt) {
             char *str_rn = serialize_int(rn);
             char *s_pred = serialize_predicate(stmt->select_stmt->pred);
 
-            serialized = (char*) malloc(strlen("{'st':' ','vn':'','v':[],'rn','r':[],'pr':}") + strlen(str_vn) + strlen(str_rn) + names_len + ref_len + strlen(s_pred) + 1);
-            memset(serialized, 0, strlen("{'st':' ','vn':'','v':[],'rn','r':[],'pr':}") + strlen(str_vn) + strlen(str_rn) + names_len + ref_len + strlen(s_pred) + 1);
+            serialized = (char*) malloc(strlen("{'st':' ','vn':'','v':[],'rn':'','r':[],'pr':}") + strlen(str_vn) + strlen(str_rn) + names_len + ref_len + strlen(s_pred) + 1);
+            memset(serialized, 0, strlen("{'st':' ','vn':'','v':[],'rn':'','r':[],'pr':}") + strlen(str_vn) + strlen(str_rn) + names_len + ref_len + strlen(s_pred) + 1);
             sprintf(serialized, "{\"st\":\"%d\",\"vn\":\"%s\",\"v\":[%s],\"rn\":\"%s\",\"r\":[%s],\"pr\":%s}", stmt->select_stmt->type, str_vn, names, str_rn, refs, s_pred);
             free(str_vn);
             free(str_rn);

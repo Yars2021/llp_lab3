@@ -18,6 +18,7 @@
 
 #define MSG_IN	"IN"
 #define MSG_OUT	"OUT"
+#define BUFFER_SIZE 32768
 
 typedef struct {
     int type;
@@ -543,6 +544,102 @@ typedef struct {
     int code;
 } SelectExitcode;
 
+SelectExitcode *tableToString(Table *table) {
+    if (!table) {
+        SelectExitcode *selectExitcode = (SelectExitcode*) malloc(sizeof(SelectExitcode));
+        selectExitcode->code = -1;
+        selectExitcode->message = createDataCell("Internal server error");
+        return selectExitcode;
+    }
+
+    SelectExitcode *selectExitcode = (SelectExitcode*) malloc(sizeof(SelectExitcode));
+    selectExitcode->code = 0;
+
+    selectExitcode->message = (char*) malloc(BUFFER_SIZE);
+    memset(selectExitcode->message, 0, BUFFER_SIZE);
+    selectExitcode->message[0] = '\n';
+    selectExitcode->message[1] = '\n';
+
+    for (size_t i = 0; i < table->tableSchema->number_of_fields; i++) {
+        strcat(selectExitcode->message, "\t");
+        strcat(selectExitcode->message, table->tableSchema->fields[i]->field_name);
+        strcat(selectExitcode->message, "\t:\t");
+        switch (table->tableSchema->fields[i]->fieldType) {
+            case INTEGER_F:
+                strcat(selectExitcode->message, "INTEGER");
+                break;
+            case FLOAT_F:
+                strcat(selectExitcode->message, "FLOAT");
+                break;
+            case BOOLEAN_F:
+                strcat(selectExitcode->message, "BOOLEAN");
+                break;
+            default:
+                strcat(selectExitcode->message, "STRING");
+                break;
+        }
+        if (i < table->tableSchema->number_of_fields - 1) strcat(selectExitcode->message, "\t|");
+    }
+
+    strcat(selectExitcode->message, "\n\n\n\n");
+
+    TableRecord *tableRecord = table->firstTableRecord;
+    for (size_t i = 0; i < table->length; i++, tableRecord = tableRecord->next_record) {
+        strcat(selectExitcode->message, "\t");
+        for (size_t j = 0; j < table->tableSchema->number_of_fields; j++) {
+            strcat(selectExitcode->message, table->tableSchema->fields[j]->field_name);
+            strcat(selectExitcode->message, " :\t");
+            strcat(selectExitcode->message, tableRecord->dataCells[j]);
+            if (j < table->tableSchema->number_of_fields - 1) strcat(selectExitcode->message, "\t|\t");
+        }
+        strcat(selectExitcode->message, "\n");
+    }
+
+    strcat(selectExitcode->message, "\n");
+
+    return selectExitcode;
+}
+
+reference **parseFieldNames(size_t rn, const char *serialized) {
+    if (rn == 0 || !serialized) return NULL;
+
+    char *field_reg = "\\{\"t\":\"(.*)\",\"f\":\"(.*)\"\\},";
+    size_t offset = 1;
+
+    char *fields_format = (char*) malloc(strlen(field_reg) * rn + 2);
+    fields_format[0] = '^';
+    for (size_t i = 0; i < rn; i++, offset += strlen(field_reg)) memcpy(fields_format + offset, field_reg, strlen(field_reg) + 1);
+    fields_format[offset - 1] = '$';
+    fields_format[offset] = '\0';
+
+    regex_t regexp_fields_rec;
+
+    regmatch_t field_groups[2 * rn + 1];
+    int comp_fields_ec, exec_fields_ec;
+
+    comp_fields_ec = regcomp(&regexp_fields_rec, fields_format, REG_EXTENDED);
+
+    if (comp_fields_ec != REG_NOERROR) return NULL;
+
+    exec_fields_ec = regexec(&regexp_fields_rec, serialized, 2 * rn + 1, field_groups, 0);
+
+    if (exec_fields_ec == REG_NOMATCH) return NULL;
+
+    free(fields_format);
+
+    reference **refs = (reference**) malloc(sizeof(reference*) * rn);
+
+    for (size_t i = 1; i <= rn; i++) {
+        refs[i - 1] = (reference*) malloc(sizeof(reference));
+        refs[i - 1]->table = substrToNewInstance(serialized, field_groups[2 * i - 1].rm_so, field_groups[2 * i - 1].rm_eo);
+        refs[i - 1]->field = substrToNewInstance(serialized, field_groups[2 * i].rm_so, field_groups[2 * i].rm_eo);
+    }
+
+    regfree(&regexp_fields_rec);
+
+    return refs;
+}
+
 SelectExitcode *parseSelectRequest(const char *target_file, const char *payload) {
     if (!target_file || !payload) {
         SelectExitcode *selectExitcode = (SelectExitcode*) malloc(sizeof(SelectExitcode));
@@ -576,24 +673,82 @@ SelectExitcode *parseSelectRequest(const char *target_file, const char *payload)
     }
 
     size_t vn = payload[groups[2].rm_so] - '0';
-    char *s_vars = substrToNewInstance(payload, groups[2].rm_so, groups[2].rm_eo);
+    char *s_vars = substrToNewInstance(payload, groups[3].rm_so, groups[3].rm_eo);
     VarPair *varPair = parseVariables(s_vars, vn);
     free(s_vars);
+
+    char *s_rn = substrToNewInstance(payload, groups[4].rm_so, groups[4].rm_eo);
+    char *s_fields = substrToNewInstance(payload, groups[5].rm_so, groups[5].rm_eo);
+    size_t rn = string_to_size_t(s_rn);
+    free(s_rn);
+
+    reference **refs = parseFieldNames(rn, s_fields);
+    char **field_names = NULL;
+
+    if (refs) {
+        field_names = (char**) malloc(sizeof(char*) * rn);
+        for (size_t i = 0; i < rn; i++) field_names[i] = createDataCell(refs[i]->field);
+    }
 
     switch (payload[groups[1].rm_so] - '0') {
         case 0: {
             // Unfiltered
-            Table *table = unfilteredSelect(target_file, "");
-            break;
+            Table *table = filteredSelect(target_file, varPair->first->table, varPair->first->var, NULL, rn, field_names);
+            SelectExitcode *selectExitcode = tableToString(table);
+
+            destroyTable(table);
+            free(varPair->first->table);
+            free(varPair->first->var);
+            free(varPair->first);
+
+            return selectExitcode;
         }
         case 1: {
             // Filtered
-            break;
+            char *s_pred = substrToNewInstance(payload, groups[6].rm_so, groups[6].rm_eo);
+            predicate *pred = parsePredicate(s_pred);
+            free(s_pred);
+            Table *table = filteredSelect(target_file, varPair->first->table, varPair->first->var, pred, rn, field_names);
+            SelectExitcode *selectExitcode = tableToString(table);
+
+            destroyTable(table);
+            free_predicate(pred);
+            free(varPair->first->table);
+            free(varPair->first->var);
+            free(varPair->first);
+
+            return selectExitcode;
         }
         case 2: {
             // Joined
-            break;
+            char *s_pred = substrToNewInstance(payload, groups[6].rm_so, groups[6].rm_eo);
+            predicate *pred = parsePredicate(s_pred);
+            free(s_pred);
+            Table *table = joinedSelect(target_file, varPair->first->table, varPair->first->var, varPair->second->table, varPair->second->var, pred, rn, refs);
+            SelectExitcode *selectExitcode = tableToString(table);
+
+            destroyTable(table);
+            free_predicate(pred);
+            free(varPair->first->table);
+            free(varPair->first->var);
+            free(varPair->first);
+            free(varPair->second->table);
+            free(varPair->second->var);
+            free(varPair->second);
+
+            return selectExitcode;
         }
+    }
+
+    if (refs) {
+        for (size_t i = 0; i < rn; i++) free(field_names[i]);
+        free(field_names);
+        for (size_t i = 0; i < rn; i++) {
+            free(refs[i]->field);
+            free(refs[i]->table);
+            free(refs[i]);
+        }
+        free(refs);
     }
 
     regfree(&regexp_rec);

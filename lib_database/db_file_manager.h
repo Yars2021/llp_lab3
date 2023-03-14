@@ -218,7 +218,9 @@ void deleteRows(const char *filename, const char *table_name, size_t num_of_filt
 /// (SELECT FROM ... INNER JOIN ... ON ... WHERE ...)
 void innerJoinSelect(const char *filename, const char *left_table, const char *right_table, size_t l_join_index, size_t r_join_index, size_t num_of_l_filters, SearchFilter **l_filters, size_t num_of_r_filters, SearchFilter **r_filters);
 
-Table *unfilteredSelect(const char *filename, const char *table_name);
+Table *filteredSelect(const char *filename, const char *table_name, const char *var, predicate *pred, int field_number, char **field_names);
+
+Table *joinedSelect(const char *filename, const char *left_table, const char *left_var, const char *right_table, const char *right_var, predicate *pred, int field_number, reference **refs);
 
 int updateRowsPred(const char *filename, char *table_name, TableRecord *new_value, predicate *pred);
 

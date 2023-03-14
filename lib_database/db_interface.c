@@ -126,22 +126,22 @@ int applyFilter(SearchFilter *searchFilter, const char *dataCell)
                 }
                 case 3: {
                     float cell_value = parseFloat(dataCell), operand_value = parseFloat(searchFilter->operand);
-                    if ((cell_value - operand_value) > 0) return FILTER_ACCEPT;
+                    if (cell_value > operand_value) return FILTER_ACCEPT;
                     return FILTER_REJECT;
                 }
                 case 4: {
-                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
-                    if ((cell_value - operand_value) < 0) return FILTER_ACCEPT;
+                    int cell_value = parseFloat(dataCell), operand_value = parseFloat(searchFilter->operand);
+                    if (cell_value < operand_value) return FILTER_ACCEPT;
                     return FILTER_REJECT;
                 }
                 case 5: {
-                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
-                    if ((cell_value - operand_value) >= FLOAT_CMP_EPS) return FILTER_ACCEPT;
+                    int cell_value = parseFloat(dataCell), operand_value = parseFloat(searchFilter->operand);
+                    if (cell_value >= operand_value) return FILTER_ACCEPT;
                     return FILTER_REJECT;
                 }
                 case 6: {
-                    int cell_value = parseInteger(dataCell), operand_value = parseInteger(searchFilter->operand);
-                    if ((operand_value - cell_value) >= FLOAT_CMP_EPS) return FILTER_ACCEPT;
+                    int cell_value = parseFloat(dataCell), operand_value = parseFloat(searchFilter->operand);
+                    if (cell_value <= operand_value) return FILTER_ACCEPT;
                     return FILTER_REJECT;
                 }
                 default: {
@@ -285,6 +285,51 @@ int applySingleTablePredicate(TableSchema *tableSchema, TableRecord *tableRecord
     return left_res && right_res;
 }
 
-int applyDoubleTablePredicate(TableSchema *leftSchema, TableSchema *rightSchema, TableRecord *tableRecord, predicate *pred) {
-    if (!leftSchema || !rightSchema || !tableRecord || !pred) return FILTER_NULL_POINTER;
+int applySimpleVarPredicate(TableSchema *tableSchema, const char *var, TableRecord *tableRecord, predicate *pred) {
+    if (!tableSchema || !tableRecord || !pred) return FILTER_NULL_POINTER;
+
+    if (pred->l_type == 0 || pred->r_type == 0) return FILTER_INCOMPATIBLE;
+    if (pred->l_type == 1 && strcmp(pred->l_ref->table, var) != 0) return FILTER_ACCEPT;
+    if (pred->l_type == 1 && pred->r_type == 1) return FILTER_ACCEPT;
+    size_t index;
+    for (index = 0; strcmp(pred->l_ref->field, tableSchema->fields[index]->field_name) != 0 && index < tableSchema->number_of_fields; index++);
+    SearchFilter *filter = createSearchFilter(tableSchema->fields[index]->fieldType, pred->cmp_type, pred->r_lit->value);
+    bindFilter(filter, index);
+
+    int exitcode = applyFilter(filter, tableRecord->dataCells[index]);
+    destroySearchFilter(filter);
+
+    return exitcode;
+}
+
+int applyVarTablePredicate(TableSchema *tableSchema, TableRecord *tableRecord, const char *var, predicate *pred) {
+    if (!tableSchema || !tableRecord || !var) return FILTER_NULL_POINTER;
+    if (!pred) return FILTER_ACCEPT;
+    if (pred->l_type != 0 && pred->r_type != 0) return applySimpleVarPredicate(tableSchema, var, tableRecord, pred);
+
+    int left_res, right_res;
+    if (pred->priority == 0) {
+        left_res = applyVarTablePredicate(tableSchema, tableRecord, var, pred->left);
+        right_res = applyVarTablePredicate(tableSchema, tableRecord, var, pred->right);
+    } else {
+        right_res = applyVarTablePredicate(tableSchema, tableRecord, var, pred->right);
+        left_res = applyVarTablePredicate(tableSchema, tableRecord, var, pred->left);
+    }
+
+    if (pred->op_type == 1) return left_res || right_res;
+    return left_res && right_res;
+}
+
+JoinIndexes *findJoinIndexes(TableSchema *leftSchema, TableSchema *rightSchema, const char *left_var, const char *right_var, predicate *pred) {
+    if (!left_var || !right_var || !pred) return NULL;
+
+    JoinIndexes *joinIndexes = NULL;
+
+    if (pred->l_type == 1 && pred->r_type == 1) {
+
+    }
+
+    if (pred->l_type == 0 && pred->r_type == 0) {
+        //joinIndexes = findJoinIndexes(left_var, right_var, pred->left);
+    }
 }

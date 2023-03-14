@@ -952,8 +952,86 @@ void innerJoinSelect(const char *filename, const char *left_table, const char *r
     destroyTableSchema(rightSchema);
 }
 
-Table *unfilteredSelect(const char *filename, const char *table_name) {
+Table *filteredSelect(const char *filename, const char *table_name, const char *var, predicate *pred, int field_number, char **field_names) {
     if (!filename || !table_name) return NULL;
+    size_t search_result = findTable(filename, table_name);
+    if (search_result == SEARCH_TABLE_NOT_FOUND) return NULL;
+
+    DataPage *tableHeader = (DataPage*) malloc(sizeof(DataPage));
+    readDataPage(filename, tableHeader, search_result);
+    size_t length = getTableLength(tableHeader), data = tableHeader->header.next_related_page, pos;
+    TableSchema *tableSchema = parseTableSchemaJSON(tableHeader->page_data, 0, &pos);
+    free(tableHeader);
+
+    TableSchema *newSchema;
+    size_t indexes[field_number];
+
+    if (field_number == 0) {
+        newSchema = tableSchema;
+    } else {
+        Field **fields = (Field **) malloc(sizeof(Field *) * field_number);
+
+        for (size_t i = 0; i < field_number; i++)
+            for (size_t j = 0; j < tableSchema->number_of_fields; j++)
+                if (strcmp(tableSchema->fields[j]->field_name, field_names[i]) == 0) {
+                    fields[i] = createField(field_names[i], tableSchema->fields[j]->fieldType);
+                    indexes[i] = j;
+                }
+
+        newSchema = createTableSchema(fields, field_number, 0);
+    }
+
+    Table *table = createTable(newSchema, "_select_result");
+
+    size_t index = 0, page_index;
+    for (uint64_t current = data, last = search_result; current != last && index < length;) {
+        last = current;
+        DataPage *dataPage = (DataPage*) malloc(sizeof(DataPage));
+        readDataPage(filename, dataPage, current);
+        current = dataPage->header.next_related_page;
+        page_index = 0;
+
+        for (; page_index < dataPage->header.data_size && index < length; page_index += (strlen(dataPage->page_data + page_index) + 1), index++) {
+            while (dataPage->page_data[page_index] == '\0' && page_index < PAGE_DATA_SIZE) page_index++;
+            if (page_index >= PAGE_DATA_SIZE) {
+                if (index > 0) index--;
+                break;
+            }
+            TableRecord *tableRecord = parseTableRecordJSON(dataPage->page_data + page_index, 0, &pos, tableSchema);
+
+            if (applyVarTablePredicate(tableSchema, tableRecord, var, pred) == FILTER_ACCEPT) {
+                if (field_number == 0) insertTableRecord(table, tableRecord);
+                else {
+                    char **dataCells = (char **) malloc(sizeof(char *) * field_number);
+                    for (size_t i = 0; i < field_number; i++) {
+                        dataCells[i] = createDataCell(tableRecord->dataCells[indexes[i]]);
+                    }
+
+                    TableRecord *newRecord = createTableRecord(field_number, dataCells);
+                    insertTableRecord(table, newRecord);
+                }
+            }
+
+            if (field_number != 0) destroyTableRecord(tableRecord);
+        }
+        free(dataPage);
+    }
+
+    if (field_number != 0) destroyTableSchema(tableSchema);
+
+    return table;
+}
+
+Table *joinedSelect(const char *filename, const char *left_table, const char *left_var, const char *right_table, const char *right_var, predicate *pred, int field_number, reference **refs) {
+    if (!filename || !left_table || !right_table || !pred) return NULL;
+    size_t left_search = findTable(filename, left_table), right_search = findTable(filename, right_table);
+    if (left_search == SEARCH_TABLE_NOT_FOUND || right_table == SEARCH_TABLE_NOT_FOUND) return NULL;
+    TableSchema *leftSchema = getSchema(filename, left_table), *rightSchema = getSchema(filename, right_table);
+
+    Table *leftTable = filteredSelect(filename, left_table, left_var, pred, 0, NULL);
+    Table *rightTable = filteredSelect(filename, left_table, right_var, pred, 0, NULL);
+
+
 }
 
 int updateRowsPred(const char *filename, char *table_name, TableRecord *new_value, predicate *pred) {

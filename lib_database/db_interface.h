@@ -50,6 +50,13 @@ void invertFilter(SearchFilter *searchFilter);
 
 int applySingleTablePredicate(TableSchema *tableSchema, TableRecord *tableRecord, predicate *pred);
 
-int applyJoinPredicate(TableSchema *leftSchema, TableSchema *rightSchema, TableRecord *tableRecord, predicate *pred);
+int applyVarTablePredicate(TableSchema *tableSchema, TableRecord *tableRecord, const char *var, predicate *pred);
+
+typedef struct {
+    size_t left;
+    size_t right;
+} JoinIndexes;
+
+JoinIndexes *findJoinIndexes(TableSchema *leftSchema, TableSchema *rightSchema, const char *left_var, const char *right_var, predicate *pred);
 
 #endif //LLP_LAB1_C_DB_INTERFACE_H
